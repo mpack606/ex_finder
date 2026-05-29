@@ -3,8 +3,9 @@ use crate::grid_view;
 use crate::navigation;
 use crate::settings;
 use crate::sidebar;
+use crate::icons;
 use iced::{Element, Task, Size, Length, Alignment};
-use iced::widget::{button, column, row, text};
+use iced::widget::{button, column, row, svg};
 use std::path::{PathBuf};
 use std::time::{Duration, Instant};
 
@@ -168,14 +169,22 @@ impl App {
 
     pub fn view(&self) -> Element<'_, Message> {
         let back_btn = {
-            let mut btn = button(text("◀").size(14));
+            let mut btn = button(
+                svg(svg::Handle::from_memory(icons::BACK_SVG))
+                    .width(16)
+                    .height(16)
+            ).padding(6);
             if !self.navigation.history_back.is_empty() {
                 btn = btn.on_press(Message::NavigateBack);
             }
             btn
         };
         let forward_btn = {
-            let mut btn = button(text("▶").size(14));
+            let mut btn = button(
+                svg(svg::Handle::from_memory(icons::FORWARD_SVG))
+                    .width(16)
+                    .height(16)
+            ).padding(6);
             if !self.navigation.history_forward.is_empty() {
                 btn = btn.on_press(Message::NavigateForward);
             }

@@ -1,5 +1,6 @@
-use iced::widget::{button, column, text, container, row};
+use iced::widget::{button, column, text, container, row, svg};
 use iced::{Element, Length};
+use crate::icons;
 use std::path::{Path, PathBuf};
 
 #[derive(Debug, Clone)]
@@ -21,7 +22,8 @@ pub fn view(quick_access_paths: &[PathBuf], current_path: &Path) -> Element<'sta
     .spacing(10);
 
     for path in quick_access_paths {
-        let display_name = if Some(path.as_path()) == dirs::home_dir().as_deref() {
+        let is_home = Some(path.as_path()) == dirs::home_dir().as_deref();
+        let display_name = if is_home {
             "Home".to_string()
         } else {
             path.file_name()
@@ -29,12 +31,22 @@ pub fn view(quick_access_paths: &[PathBuf], current_path: &Path) -> Element<'sta
                 .unwrap_or_else(|| path.to_string_lossy().into_owned())
         };
 
+        let icon = if is_home {
+            svg(svg::Handle::from_memory(icons::HOME_SVG))
+                .width(18)
+                .height(18)
+        } else {
+            svg(svg::Handle::from_memory(icons::FOLDER_SVG))
+                .width(18)
+                .height(18)
+        };
+
         let path_clone = path.clone();
         let btn = button(
             row![
-                text("📁 ").size(14),
+                icon,
                 text(display_name).size(14)
-            ].spacing(6)
+            ].spacing(6).align_y(iced::Alignment::Center)
         )
         .width(Length::Fill)
         .padding(8)
@@ -56,9 +68,11 @@ pub fn view(quick_access_paths: &[PathBuf], current_path: &Path) -> Element<'sta
     if !is_already_bookmarked {
         let add_btn = button(
             row![
-                text("➕ ").size(12),
+                svg(svg::Handle::from_memory(icons::PIN_SVG))
+                    .width(16)
+                    .height(16),
                 text("Pin Current").size(12)
-            ].spacing(4)
+            ].spacing(6).align_y(iced::Alignment::Center)
         )
         .width(Length::Fill)
         .padding(8)

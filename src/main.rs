@@ -4,6 +4,7 @@ mod navigation;
 mod sidebar;
 mod address_bar;
 mod grid_view;
+mod icons;
 
 use app::App;
 use iced::Theme;

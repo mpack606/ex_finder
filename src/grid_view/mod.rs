@@ -1,5 +1,6 @@
-use iced::widget::{button, column, row, scrollable, text, container};
+use iced::widget::{button, column, row, scrollable, text, container, svg};
 use iced::{Element, Length, Color, Alignment};
+use crate::icons;
 use std::fs;
 use std::path::{Path, PathBuf};
 
@@ -75,9 +76,19 @@ pub fn view(
                 item.name.clone()
             };
 
+            let icon = if item.is_dir {
+                svg(svg::Handle::from_memory(icons::FOLDER_SVG))
+                    .width(48)
+                    .height(48)
+            } else {
+                svg(svg::Handle::from_memory(icons::FILE_SVG))
+                    .width(48)
+                    .height(48)
+            };
+
             let item_btn = button(
                 column![
-                    text(if item.is_dir { "📁" } else { "📄" }).size(36),
+                    icon,
                     text(display_name)
                         .size(12)
                         .width(Length::Fill)
