@@ -30,6 +30,7 @@ pub enum Message {
     WindowResized(iced::window::Id, Size),
     NavigateBack,
     NavigateForward,
+    NavigateUp,
     None,
 }
 
@@ -142,6 +143,12 @@ impl App {
                     self.on_navigation_changed();
                 }
             }
+            Message::NavigateUp => {
+                if let Some(parent) = self.navigation.current_path.parent() {
+                    let parent = parent.to_path_buf();
+                    self.navigate_to_path(parent);
+                }
+            }
             Message::None => {}
         }
         Task::none()
@@ -190,7 +197,18 @@ impl App {
             }
             btn
         };
-        let nav_buttons = row![back_btn, forward_btn].spacing(6);
+        let up_btn = {
+            let mut btn = button(
+                svg(svg::Handle::from_memory(icons::UP_SVG))
+                    .width(16)
+                    .height(16)
+            ).padding(6);
+            if self.navigation.current_path.parent().is_some() {
+                btn = btn.on_press(Message::NavigateUp);
+            }
+            btn
+        };
+        let nav_buttons = row![back_btn, forward_btn, up_btn].spacing(6);
 
         let address_bar_element = address_bar::view(&self.address_input, self.address_invalid)
             .map(Message::AddressBar);
