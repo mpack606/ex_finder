@@ -116,13 +116,13 @@ pub fn view(
                     iced::Border {
                         color: palette.primary.strong.color,
                         width: 1.5,
-                        radius: 6.0.into(),
+                        radius: 12.0.into(),
                     }
                 } else {
                     iced::Border {
                         color: Color::TRANSPARENT,
                         width: 0.0,
-                        radius: 6.0.into(),
+                        radius: 12.0.into(),
                     }
                 };
 

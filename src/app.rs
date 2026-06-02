@@ -4,7 +4,7 @@ use crate::navigation;
 use crate::settings;
 use crate::sidebar;
 use crate::icons;
-use iced::{Element, Task, Size, Length, Alignment};
+use iced::{Element, Task, Size, Length, Alignment, Border};
 use iced::widget::{button, column, row, svg};
 use std::path::{PathBuf};
 use std::time::{Duration, Instant};
@@ -180,7 +180,25 @@ impl App {
                 svg(svg::Handle::from_memory(icons::BACK_SVG))
                     .width(16)
                     .height(16)
-            ).padding(6);
+            ).padding(6)
+            .style(|theme: &iced::Theme, status| {
+                let palette = theme.extended_palette();
+                let bg = if status == button::Status::Hovered {
+                    Some(palette.background.base.color.into())
+                } else {
+                    None
+                };
+
+                button::Style {
+                    background: bg,
+                    text_color: palette.background.strong.text,
+                    border: Border {
+                        radius: 12.0.into(),
+                        ..Default::default()
+                    },
+                    ..Default::default()
+                }
+            });
             if !self.navigation.history_back.is_empty() {
                 btn = btn.on_press(Message::NavigateBack);
             }
@@ -191,7 +209,25 @@ impl App {
                 svg(svg::Handle::from_memory(icons::FORWARD_SVG))
                     .width(16)
                     .height(16)
-            ).padding(6);
+            ).padding(6)
+            .style(|theme: &iced::Theme, status| {
+                let palette = theme.extended_palette();
+                let bg = if status == button::Status::Hovered {
+                    Some(palette.background.base.color.into())
+                } else {
+                    None
+                };
+
+                button::Style {
+                    background: bg,
+                    text_color: palette.background.strong.text,
+                    border: Border {
+                        radius: 12.0.into(),
+                        ..Default::default()
+                    },
+                    ..Default::default()
+                }
+            });
             if !self.navigation.history_forward.is_empty() {
                 btn = btn.on_press(Message::NavigateForward);
             }
@@ -202,7 +238,25 @@ impl App {
                 svg(svg::Handle::from_memory(icons::UP_SVG))
                     .width(16)
                     .height(16)
-            ).padding(6);
+            ).padding(6)
+            .style(|theme: &iced::Theme, status| {
+                let palette = theme.extended_palette();
+                let bg = if status == button::Status::Hovered {
+                    Some(palette.background.base.color.into())
+                } else {
+                    None
+                };
+
+                button::Style {
+                    background: bg,
+                    text_color: palette.background.strong.text,
+                    border: Border {
+                        radius: 12.0.into(),
+                        ..Default::default()
+                    },
+                    ..Default::default()
+                }
+            });
             if self.navigation.current_path.parent().is_some() {
                 btn = btn.on_press(Message::NavigateUp);
             }

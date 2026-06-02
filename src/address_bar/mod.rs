@@ -22,7 +22,7 @@ pub fn view(input_value: &str, is_invalid: bool) -> Element<'static, AddressBarM
                 border: Border {
                     color: Color::from_rgb(0.9, 0.2, 0.2),
                     width: 2.0,
-                    radius: 4.0.into(),
+                    radius: 12.0.into(),
                 },
                 icon: palette.background.strong.color,
                 placeholder: palette.background.strong.color,
@@ -38,7 +38,7 @@ pub fn view(input_value: &str, is_invalid: bool) -> Element<'static, AddressBarM
                 border: Border {
                     color: palette.background.strong.color,
                     width: 1.0,
-                    radius: 4.0.into(),
+                    radius: 12.0.into(),
                 },
                 icon: palette.background.strong.color,
                 placeholder: palette.background.strong.color,
@@ -64,6 +64,24 @@ pub fn view(input_value: &str, is_invalid: bool) -> Element<'static, AddressBarM
             button("Go")
                 .padding(8)
                 .on_press(AddressBarMessage::Submit)
+                .style(|theme: &iced::Theme, status| {
+                    let palette = theme.extended_palette();
+                    let bg = if status == button::Status::Hovered {
+                        Some(palette.background.base.color.into())
+                    } else {
+                        Some(palette.background.strong.color.into())
+                    };
+
+                    button::Style {
+                        background: bg,
+                        text_color: palette.background.strong.text,
+                        border: Border {
+                            radius: 12.0.into(),
+                            ..Default::default()
+                        },
+                        ..Default::default()
+                    }
+                })
         );
 
     content.into()

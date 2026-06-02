@@ -42,6 +42,7 @@ pub fn view(quick_access_paths: &[PathBuf], current_path: &Path) -> Element<'sta
                 .height(18)
         };
 
+        let is_current = path == current_path;
         let path_clone = path.clone();
         let btn = button(
             row![
@@ -51,11 +52,50 @@ pub fn view(quick_access_paths: &[PathBuf], current_path: &Path) -> Element<'sta
         )
         .width(Length::Fill)
         .padding(8)
-        .on_press(SidebarMessage::SelectPath(path_clone));
+        .on_press(SidebarMessage::SelectPath(path_clone))
+        .style(move |theme: &iced::Theme, status| {
+            let palette = theme.extended_palette();
+            
+            let bg = if is_current {
+                Some(palette.background.strong.color.into())
+            } else if status == button::Status::Hovered {
+                Some(palette.background.base.color.into())
+            } else {
+                None
+            };
+
+            button::Style {
+                background: bg,
+                text_color: palette.background.strong.text,
+                border: iced::Border {
+                    radius: 12.0.into(),
+                    ..Default::default()
+                },
+                ..Default::default()
+            }
+        });
 
         let remove_btn = button(text("✕").size(10))
             .padding(6)
-            .on_press(SidebarMessage::RemovePath(path.clone()));
+            .on_press(SidebarMessage::RemovePath(path.clone()))
+            .style(|theme: &iced::Theme, status| {
+                let palette = theme.extended_palette();
+                let bg = if status == button::Status::Hovered {
+                    Some(palette.background.base.color.into())
+                } else {
+                    None
+                };
+
+                button::Style {
+                    background: bg,
+                    text_color: palette.background.strong.text,
+                    border: iced::Border {
+                        radius: 8.0.into(),
+                        ..Default::default()
+                    },
+                    ..Default::default()
+                }
+            });
 
         sidebar_col = sidebar_col.push(
             row![btn, remove_btn]
@@ -77,7 +117,25 @@ pub fn view(quick_access_paths: &[PathBuf], current_path: &Path) -> Element<'sta
         )
         .width(Length::Fill)
         .padding(8)
-        .on_press(SidebarMessage::AddCurrentPath(current_path.to_path_buf()));
+        .on_press(SidebarMessage::AddCurrentPath(current_path.to_path_buf()))
+        .style(|theme: &iced::Theme, status| {
+            let palette = theme.extended_palette();
+            let bg = if status == button::Status::Hovered {
+                Some(palette.background.base.color.into())
+            } else {
+                None
+            };
+
+            button::Style {
+                background: bg,
+                text_color: palette.background.strong.text,
+                border: iced::Border {
+                    radius: 12.0.into(),
+                    ..Default::default()
+                },
+                ..Default::default()
+            }
+        });
         
         sidebar_col = sidebar_col.push(add_btn);
     }
@@ -93,7 +151,7 @@ pub fn view(quick_access_paths: &[PathBuf], current_path: &Path) -> Element<'sta
                 border: iced::border::Border {
                     color: palette.background.strong.color,
                     width: 1.0,
-                    radius: 0.0.into(),
+                    radius: 8.0.into(),
                 },
                 ..Default::default()
             }
