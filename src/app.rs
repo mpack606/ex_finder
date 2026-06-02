@@ -1,5 +1,6 @@
 use crate::address_bar;
 use crate::grid_view;
+use crate::bottom_bar;
 use crate::navigation;
 use crate::settings;
 use crate::sidebar;
@@ -123,6 +124,9 @@ impl App {
                         } else {
                             self.selected_item = Some(path);
                         }
+                    }
+                    grid_view::GridMessage::BackgroundClicked => {
+                        self.selected_item = None;
                     }
                 }
             }
@@ -281,9 +285,14 @@ impl App {
         let grid_element = grid_view::view(&self.grid_items, self.selected_item.as_ref(), self.window_width)
             .map(Message::Grid);
 
+        let bottom_bar = bottom_bar::view(self.selected_item.as_deref());
+
         let body = row![
             sidebar_element,
-            grid_element
+            column![
+                grid_element,
+                bottom_bar
+            ]
         ]
         .width(Length::Fill)
         .height(Length::Fill);

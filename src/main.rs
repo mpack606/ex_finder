@@ -4,6 +4,7 @@ mod navigation;
 mod sidebar;
 mod address_bar;
 mod grid_view;
+mod bottom_bar;
 mod icons;
 
 use app::App;

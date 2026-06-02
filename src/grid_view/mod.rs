@@ -1,4 +1,4 @@
-use iced::widget::{button, column, row, scrollable, text, container, svg};
+use iced::widget::{button, column, row, scrollable, text, container, svg, mouse_area};
 use iced::{Element, Length, Color, Alignment};
 use crate::icons;
 use std::fs;
@@ -14,6 +14,7 @@ pub struct DirectoryItem {
 #[derive(Debug, Clone)]
 pub enum GridMessage {
     ItemClicked(PathBuf, bool),
+    BackgroundClicked,
 }
 
 pub fn read_directory(path: &Path) -> Result<Vec<DirectoryItem>, std::io::Error> {
@@ -70,9 +71,7 @@ pub fn view(
             let path_clone = item.path.clone();
             let is_dir = item.is_dir;
 
-            let display_name = if is_selected {
-                item.name.clone()
-            } else if item.name.len() > 12 {
+            let display_name = if item.name.len() > 12 {
                 format!("{}...", &item.name[0..9])
             } else {
                 item.name.clone()
@@ -143,9 +142,12 @@ pub fn view(
         .width(Length::Fill)
         .height(Length::Fill);
 
-    container(scrollable_content)
-        .width(Length::Fill)
-        .height(Length::Fill)
-        .padding(10)
-        .into()
+    mouse_area(
+        container(scrollable_content)
+            .width(Length::Fill)
+            .height(Length::Fill)
+            .padding(10)
+    )
+    .on_press(GridMessage::BackgroundClicked)
+    .into()
 }
