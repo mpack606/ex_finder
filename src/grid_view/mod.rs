@@ -70,7 +70,9 @@ pub fn view(
             let path_clone = item.path.clone();
             let is_dir = item.is_dir;
 
-            let display_name = if item.name.len() > 12 {
+            let display_name = if is_selected {
+                item.name.clone()
+            } else if item.name.len() > 12 {
                 format!("{}...", &item.name[0..9])
             } else {
                 item.name.clone()
