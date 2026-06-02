@@ -26,6 +26,7 @@ fn main() -> iced::Result {
             position: iced::window::Position::Centered,
             ..Default::default()
         })
+        .default_font(iced::Font::with_name("system-ui"))
         .subscription(App::subscription)
         .title(title)
         .theme(theme)

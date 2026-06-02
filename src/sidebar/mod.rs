@@ -14,8 +14,9 @@ pub fn view(quick_access_paths: &[PathBuf], current_path: &Path) -> Element<'sta
     let mut sidebar_col = column![
         text("Quick Access")
             .size(16)
-            .font(iced::font::Font {
+            .font(iced::Font {
                 weight: iced::font::Weight::Bold,
+                family: iced::font::Family::Name("system-ui"),
                 ..Default::default()
             })
     ]
