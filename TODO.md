@@ -9,7 +9,6 @@
 [] Tabs
 [] List view with item details
 [] Search in folder
-[] Scroll in quick access
 
 Technical improvements:
 [] Make IO async so big folders dont wait for eternity to open

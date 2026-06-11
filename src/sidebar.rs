@@ -1,4 +1,4 @@
-use iced::widget::{button, column, text, container, row, svg};
+use iced::widget::{button, column, text, container, row, svg, scrollable};
 use iced::{Element, Length};
 use crate::icons;
 use std::path::{Path, PathBuf};
@@ -11,16 +11,15 @@ pub enum SidebarMessage {
 }
 
 pub fn view(quick_access_paths: &[PathBuf], current_path: &Path) -> Element<'static, SidebarMessage> {
-    let mut sidebar_col = column![
-        text("Quick Access")
-            .size(16)
-            .font(iced::Font {
-                weight: iced::font::Weight::Bold,
-                family: iced::font::Family::Name("system-ui"),
-                ..Default::default()
-            })
-    ]
-    .spacing(10);
+    let title = text("Quick Access")
+        .size(16)
+        .font(iced::Font {
+            weight: iced::font::Weight::Bold,
+            family: iced::font::Family::Name("system-ui"),
+            ..Default::default()
+        });
+
+    let mut list_col = column![].spacing(10);
 
     for path in quick_access_paths {
         let is_home = Some(path.as_path()) == dirs::home_dir().as_deref();
@@ -97,7 +96,7 @@ pub fn view(quick_access_paths: &[PathBuf], current_path: &Path) -> Element<'sta
                 }
             });
 
-        sidebar_col = sidebar_col.push(
+        list_col = list_col.push(
             row![btn, remove_btn]
                 .align_y(iced::Alignment::Center)
                 .spacing(5)
@@ -137,13 +136,18 @@ pub fn view(quick_access_paths: &[PathBuf], current_path: &Path) -> Element<'sta
             }
         });
         
-        sidebar_col = sidebar_col.push(add_btn);
+        list_col = list_col.push(add_btn);
     }
 
-    container(sidebar_col)
-        .width(Length::Fixed(200.0))
-        .height(Length::Fill)
-        .padding(10)
+    let sidebar_layout = column![
+        title,
+        scrollable(list_col).height(Length::Fill)
+    ].spacing(10);
+
+    container(sidebar_layout)
+    .width(Length::Fixed(200.0))
+    .height(Length::Fill)
+    .padding(10)
         .style(move |theme: &iced::Theme| {
             let palette = theme.extended_palette();
             container::Style {
