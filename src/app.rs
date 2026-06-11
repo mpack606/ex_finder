@@ -179,93 +179,99 @@ impl App {
     }
 
     pub fn view(&self) -> Element<'_, Message> {
-        let back_btn = {
-            let mut btn = button(
-                svg(svg::Handle::from_memory(icons::BACK_SVG))
-                    .width(16)
-                    .height(16)
-            ).padding(6)
-            .style(|theme: &iced::Theme, status| {
-                let palette = theme.extended_palette();
-                let bg = if status == button::Status::Hovered {
-                    Some(palette.background.base.color.into())
-                } else {
-                    None
-                };
+        let back_btn = button(
+            svg(svg::Handle::from_memory(icons::BACK_SVG))
+                .width(16)
+                .height(16)
+        ).padding(6)
+        .style(|theme: &iced::Theme, status| {
+            let palette = theme.extended_palette();
+            let is_hovered = status == button::Status::Hovered;
 
-                button::Style {
-                    background: bg,
-                    text_color: palette.background.strong.text,
-                    border: Border {
-                        radius: 12.0.into(),
-                        ..Default::default()
-                    },
-                    ..Default::default()
-                }
-            });
-            if !self.navigation.history_back.is_empty() {
-                btn = btn.on_press(Message::NavigateBack);
-            }
-            btn
-        };
-        let forward_btn = {
-            let mut btn = button(
-                svg(svg::Handle::from_memory(icons::FORWARD_SVG))
-                    .width(16)
-                    .height(16)
-            ).padding(6)
-            .style(|theme: &iced::Theme, status| {
-                let palette = theme.extended_palette();
-                let bg = if status == button::Status::Hovered {
-                    Some(palette.background.base.color.into())
-                } else {
-                    None
-                };
+            let bg = if is_hovered {
+                Some(palette.background.base.color.into())
+            } else {
+                None
+            };
 
-                button::Style {
-                    background: bg,
-                    text_color: palette.background.strong.text,
-                    border: Border {
-                        radius: 12.0.into(),
-                        ..Default::default()
+            button::Style {
+                background: bg,
+                text_color: palette.background.strong.text,
+                border: Border {
+                    color: if is_hovered {
+                        palette.primary.base.color
+                    } else {
+                        palette.background.strong.color
                     },
-                    ..Default::default()
-                }
-            });
-            if !self.navigation.history_forward.is_empty() {
-                btn = btn.on_press(Message::NavigateForward);
+                    width: 1.0,
+                    radius: 12.0.into(),
+                },
+                ..Default::default()
             }
-            btn
-        };
-        let up_btn = {
-            let mut btn = button(
-                svg(svg::Handle::from_memory(icons::UP_SVG))
-                    .width(16)
-                    .height(16)
-            ).padding(6)
-            .style(|theme: &iced::Theme, status| {
-                let palette = theme.extended_palette();
-                let bg = if status == button::Status::Hovered {
-                    Some(palette.background.base.color.into())
-                } else {
-                    None
-                };
+        })
+        .on_press(Message::NavigateBack);
+        let forward_btn = button(
+            svg(svg::Handle::from_memory(icons::FORWARD_SVG))
+                .width(16)
+                .height(16)
+        ).padding(6)
+        .style(|theme: &iced::Theme, status| {
+            let palette = theme.extended_palette();
+            let is_hovered = status == button::Status::Hovered;
 
-                button::Style {
-                    background: bg,
-                    text_color: palette.background.strong.text,
-                    border: Border {
-                        radius: 12.0.into(),
-                        ..Default::default()
+            let bg = if is_hovered {
+                Some(palette.background.base.color.into())
+            } else {
+                None
+            };
+
+            button::Style {
+                background: bg,
+                text_color: palette.background.strong.text,
+                border: Border {
+                    color: if is_hovered {
+                        palette.primary.base.color
+                    } else {
+                        palette.background.strong.color
                     },
-                    ..Default::default()
-                }
-            });
-            if self.navigation.current_path.parent().is_some() {
-                btn = btn.on_press(Message::NavigateUp);
+                    width: 1.0,
+                    radius: 12.0.into(),
+                },
+                ..Default::default()
             }
-            btn
-        };
+        })
+        .on_press(Message::NavigateForward);
+        let up_btn = button(
+            svg(svg::Handle::from_memory(icons::UP_SVG))
+                .width(16)
+                .height(16)
+        ).padding(6)
+        .style(|theme: &iced::Theme, status| {
+            let palette = theme.extended_palette();
+            let is_hovered = status == button::Status::Hovered;
+
+            let bg = if is_hovered {
+                Some(palette.background.base.color.into())
+            } else {
+                None
+            };
+
+            button::Style {
+                background: bg,
+                text_color: palette.background.strong.text,
+                border: Border {
+                    color: if is_hovered {
+                        palette.primary.base.color
+                    } else {
+                        palette.background.strong.color
+                    },
+                    width: 1.0,
+                    radius: 12.0.into(),
+                },
+                ..Default::default()
+            }
+        })
+        .on_press(Message::NavigateUp);
         let nav_buttons = row![back_btn, forward_btn, up_btn].spacing(6);
 
         let address_bar_element = address_bar::view(&self.address_input, self.address_invalid)

@@ -66,7 +66,8 @@ pub fn view(input_value: &str, is_invalid: bool) -> Element<'static, AddressBarM
                 .on_press(AddressBarMessage::Submit)
                 .style(|theme: &iced::Theme, status| {
                     let palette = theme.extended_palette();
-                    let bg = if status == button::Status::Hovered {
+                    let is_hovered = status == button::Status::Hovered;
+                    let bg = if is_hovered {
                         Some(palette.background.base.color.into())
                     } else {
                         Some(palette.background.strong.color.into())
@@ -76,8 +77,13 @@ pub fn view(input_value: &str, is_invalid: bool) -> Element<'static, AddressBarM
                         background: bg,
                         text_color: palette.background.strong.text,
                         border: Border {
+                            color: if is_hovered {
+                                palette.primary.base.color
+                            } else {
+                                palette.background.strong.color
+                            },
+                            width: 1.0,
                             radius: 12.0.into(),
-                            ..Default::default()
                         },
                         ..Default::default()
                     }
