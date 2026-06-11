@@ -3,6 +3,7 @@ mod settings;
 mod navigation;
 mod sidebar;
 mod address_bar;
+mod search;
 mod grid_view;
 mod bottom_bar;
 mod icons;

@@ -1,4 +1,5 @@
 use crate::address_bar;
+use crate::search;
 use crate::grid_view;
 use crate::bottom_bar;
 use crate::navigation;
@@ -16,6 +17,7 @@ pub struct App {
     sidebar_paths: Vec<PathBuf>,
     address_input: String,
     address_invalid: bool,
+    search_query: String,
     grid_items: Vec<grid_view::DirectoryItem>,
     selected_item: Option<PathBuf>,
     window_width: f32,
@@ -27,6 +29,7 @@ pub struct App {
 pub enum Message {
     Sidebar(sidebar::SidebarMessage),
     AddressBar(address_bar::AddressBarMessage),
+    Search(search::SearchMessage),
     Grid(grid_view::GridMessage),
     WindowResized(iced::window::Id, Size),
     NavigateBack,
@@ -53,6 +56,7 @@ impl App {
                 sidebar_paths,
                 address_input,
                 address_invalid: false,
+                search_query: String::new(),
                 grid_items,
                 selected_item: None,
                 window_width: settings.window_width as f32,
@@ -97,6 +101,16 @@ impl App {
                         } else {
                             self.address_invalid = true;
                         }
+                    }
+                }
+            }
+            Message::Search(search_msg) => {
+                match search_msg {
+                    search::SearchMessage::InputChanged(val) => {
+                        self.search_query = val;
+                    }
+                    search::SearchMessage::Clear => {
+                        self.search_query.clear();
                     }
                 }
             }
@@ -277,9 +291,12 @@ impl App {
         let address_bar_element = address_bar::view(&self.address_input, self.address_invalid)
             .map(Message::AddressBar);
 
+        let search_box = search::view(&self.search_query).map(Message::Search);
+
         let top_row = row![
             nav_buttons,
-            address_bar_element
+            address_bar_element,
+            search_box
         ]
         .spacing(12)
         .align_y(Alignment::Center)
@@ -288,7 +305,17 @@ impl App {
         let sidebar_element = sidebar::view(&self.sidebar_paths, &self.navigation.current_path)
             .map(Message::Sidebar);
 
-        let grid_element = grid_view::view(&self.grid_items, self.selected_item.as_ref(), self.window_width)
+        let filtered_items: Vec<_> = if self.search_query.is_empty() {
+            self.grid_items.clone()
+        } else {
+            let query = self.search_query.to_lowercase();
+            self.grid_items.iter()
+                .filter(|item| item.name.to_lowercase().contains(&query))
+                .cloned()
+                .collect()
+        };
+
+        let grid_element = grid_view::view(&filtered_items, self.selected_item.as_ref(), self.window_width)
             .map(Message::Grid);
 
         let bottom_bar = bottom_bar::view(self.selected_item.as_deref());
