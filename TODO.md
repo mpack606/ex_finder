@@ -9,6 +9,8 @@
 [] Tabs
 [] List view with item details
 [] Search in folder
+[] Swap places of navigation bar and bottom bar
+[] Improve text display (mostly font)
 
 Technical improvements:
 [] Make IO async so big folders dont wait for eternity to open
