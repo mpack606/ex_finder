@@ -1,5 +1,5 @@
-use iced::widget::{button, column, row, scrollable, text, container, svg, mouse_area};
-use iced::{Element, Length, Color, Alignment};
+use iced::widget::{button, column, row, scrollable, text, container, svg, mouse_area, stack};
+use iced::{Element, Length, Color, Alignment, Font, font};
 use crate::icons;
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -77,14 +77,42 @@ pub fn view(
                 item.name.clone()
             };
 
-            let icon = if item.is_dir {
+            let icon: Element<_> = if item.is_dir {
                 svg(svg::Handle::from_memory(icons::FOLDER_SVG))
                     .width(48)
                     .height(48)
+                    .into()
+            } else if let Some(ext) = item.path.extension().and_then(|e| e.to_str()) {
+                let ext_str = ext.to_uppercase();
+                stack![
+                    svg(svg::Handle::from_memory(icons::FILE_SVG))
+                        .width(48)
+                        .height(48),
+                    container(
+                        text(ext_str)
+                            .size(10)
+                            .font(Font {
+                                weight: font::Weight::Bold,
+                                family: font::Family::Name("system-ui"),
+                                ..Default::default()
+                            })
+                            .color(Color::WHITE)
+                    )
+                    .width(48)
+                    .height(48)
+                    .align_x(Alignment::Center)
+                    .align_y(Alignment::Center)
+                    .padding(iced::Padding {
+                        top: 12.0,
+                        ..Default::default()
+                    })
+                ]
+                .into()
             } else {
                 svg(svg::Handle::from_memory(icons::FILE_SVG))
                     .width(48)
                     .height(48)
+                    .into()
             };
 
             let item_btn = button(
