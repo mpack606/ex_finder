@@ -6,7 +6,7 @@ use crate::navigation;
 use crate::settings;
 use crate::sidebar;
 use crate::icons;
-use iced::{Element, Task, Size, Length, Alignment, Border};
+use iced::{Element, Task, Size, Length, Alignment, Border, keyboard, Event};
 use iced::widget::{button, column, row, svg};
 use std::path::{PathBuf};
 use std::time::{Duration, Instant};
@@ -340,6 +340,19 @@ impl App {
     }
 
     pub fn subscription(&self) -> iced::Subscription<Message> {
-        iced::window::resize_events().map(|(id, size)| Message::WindowResized(id, size))
+        iced::Subscription::batch(vec![
+            iced::window::resize_events().map(|(id, size)| Message::WindowResized(id, size)),
+            iced::event::listen().filter_map(|event| {
+                match event {
+                    Event::Keyboard(keyboard::Event::KeyReleased { key, .. }) => {
+                        if let keyboard::Key::Named(keyboard::key::Named::Escape) = key {
+                            return Some(Message::Search(search::SearchMessage::Clear));
+                        }
+                    }
+                    _ => {}
+                }
+                None
+            }),
+        ])
     }
 }
