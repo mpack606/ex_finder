@@ -11,6 +11,12 @@
 [] Search in folder
 [] Swap places of navigation bar and bottom bar
 [] Improve text display (mostly font)
+[] Add keyboard shortcuts
+    - ctrl f - search
+    - ctrl c - copy
+    - ctrl v - paste
+    - ctrl x - cut
+    - delete - delete
 
 Technical improvements:
 [] Make IO async so big folders dont wait for eternity to open
