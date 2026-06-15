@@ -34,9 +34,9 @@ pub fn view(query: &str) -> Element<'_, SearchMessage> {
             }
         });
 
-    if query.is_empty() {
-        Element::from(search_input)
-    } else {
+    let mut stack = stack![search_input];
+
+    if !query.is_empty() {
         let clear_button = button(
             svg(svg::Handle::from_memory(icons::CLOSE_SVG))
                 .width(10)
@@ -62,8 +62,7 @@ pub fn view(query: &str) -> Element<'_, SearchMessage> {
             }
         });
 
-        stack![
-            search_input,
+        stack = stack.push(
             container(clear_button)
                 .width(Length::Fixed(200.0))
                 .align_x(Alignment::End)
@@ -72,6 +71,8 @@ pub fn view(query: &str) -> Element<'_, SearchMessage> {
                     right: 6.0,
                     ..Padding::ZERO
                 })
-        ].into()
+        );
     }
+
+    stack.into()
 }
