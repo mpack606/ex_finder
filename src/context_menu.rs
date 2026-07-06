@@ -6,6 +6,7 @@ use std::path::PathBuf;
 pub enum ContextMenuAction {
     Copy(PathBuf),
     Paste,
+    Rename(PathBuf),
     MoveToTrash(PathBuf),
     Refresh,
 }
@@ -19,6 +20,7 @@ pub enum ContextMenuMessage {
 #[derive(Debug, Clone)]
 pub enum ContextMenuEvent {
     Refresh,
+    Rename(PathBuf),
 }
 
 pub struct ContextMenuState {
@@ -36,6 +38,7 @@ pub fn view(
     if let Some((path, is_dir)) = &state.path {
         is_folder = *is_dir;
         menu_items.push(menu_item("Copy".to_string(), Some(ContextMenuAction::Copy(path.clone())), true));
+        menu_items.push(menu_item("Rename".to_string(), Some(ContextMenuAction::Rename(path.clone())), true));
         menu_items.push(menu_item("Move to trash".to_string(), Some(ContextMenuAction::MoveToTrash(path.clone())), true));
     }
 
@@ -118,6 +121,9 @@ pub fn handle_action(
             Task::perform(async move {
                 let _ = trash::delete(path);
             }, |_| Some(ContextMenuEvent::Refresh))
+        }
+        ContextMenuAction::Rename(path) => {
+            Task::done(Some(ContextMenuEvent::Rename(path)))
         }
         ContextMenuAction::Refresh => {
             Task::done(Some(ContextMenuEvent::Refresh))

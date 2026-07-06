@@ -8,8 +8,8 @@ use crate::sidebar;
 use crate::icons;
 use crate::app_icons;
 use crate::context_menu;
-use iced::{Element, Task, Size, Length, Alignment, Border, keyboard, Event};
-use iced::widget::{button, column, row, svg, stack};
+use iced::{Element, Task, Size, Length, Alignment, Border, Color, keyboard, Event};
+use iced::widget::{button, column, row, svg, stack, text_input, container, mouse_area, text};
 use std::path::{PathBuf};
 use std::time::{Duration, Instant};
 
@@ -28,6 +28,7 @@ pub struct App {
     cursor_position: iced::Point,
     context_menu: Option<context_menu::ContextMenuState>,
     clipboard: Option<PathBuf>,
+    renaming_path: Option<(PathBuf, String)>,
 }
 
 #[derive(Debug, Clone)]
@@ -40,6 +41,10 @@ pub enum Message {
     WindowResized(iced::window::Id, Size),
     MouseMoved(iced::Point),
     ContextMenu(context_menu::ContextMenuMessage),
+    RenameRequested(PathBuf),
+    RenameInputChanged(String),
+    RenameSubmitted,
+    CancelRename,
     Refresh,
     NavigateBack,
     NavigateForward,
@@ -73,6 +78,7 @@ impl App {
             cursor_position: iced::Point::ORIGIN,
             context_menu: None,
             clipboard: None,
+            renaming_path: None,
         };
 
         let task = app.load_app_icons();
@@ -188,10 +194,47 @@ impl App {
                             self.navigation.current_path.clone(),
                         ).map(|event| match event {
                             Some(context_menu::ContextMenuEvent::Refresh) => Message::Refresh,
+                            Some(context_menu::ContextMenuEvent::Rename(path)) => {
+                                let name = path.file_name().unwrap_or_default().to_string_lossy().into_owned();
+                                Message::RenameInputChanged(name);
+                                // We need to set renaming_path here.
+                                // Actually, it's better to return a message that sets it.
+                                Message::RenameRequested(path)
+                            }
                             None => Message::None,
                         });
                     }
                 }
+            }
+            Message::RenameRequested(path) => {
+                let name = path.file_name().unwrap_or_default().to_string_lossy().into_owned();
+                self.renaming_path = Some((path, name));
+            }
+            Message::RenameInputChanged(val) => {
+                if let Some((_, input)) = &mut self.renaming_path {
+                    *input = val;
+                }
+            }
+            Message::RenameSubmitted => {
+                if let Some((old_path, new_name)) = self.renaming_path.take() {
+                    if !new_name.is_empty() {
+                        let new_path = old_path.parent().unwrap().join(new_name);
+                        return Task::perform(async move {
+                            std::fs::rename(old_path, new_path)
+                        }, |result| {
+                            match result {
+                                Ok(_) => Message::Refresh,
+                                Err(e) => {
+                                    eprintln!("Failed to rename: {}", e);
+                                    Message::Refresh
+                                }
+                            }
+                        });
+                    }
+                }
+            }
+            Message::CancelRename => {
+                self.renaming_path = None;
             }
             Message::AppIconFound(ext, icon_path) => {
                 for item in self.grid_items.iter_mut() {
@@ -427,6 +470,90 @@ impl App {
                 content,
                 context_menu::view(context_menu, self.clipboard.is_some())
                     .map(Message::ContextMenu)
+            ].into()
+        } else if let Some((_, input)) = &self.renaming_path {
+            let dialog = container(
+                container(
+                    column![
+                        text("Rename")
+                            .size(18)
+                            .font(iced::Font {
+                                weight: iced::font::Weight::Bold,
+                                ..Default::default()
+                            }),
+                        text_input("New name", input)
+                            .on_input(Message::RenameInputChanged)
+                            .on_submit(Message::RenameSubmitted)
+                            .padding(10)
+                            .size(14),
+                        row![
+                            button(text("Cancel").align_x(Alignment::Center))
+                                .on_press(Message::CancelRename)
+                                .padding(8)
+                                .width(Length::Fill)
+                                .style(|theme: &iced::Theme, _status| {
+                                    let palette = theme.extended_palette();
+                                    button::Style {
+                                        background: Some(palette.background.weak.color.into()),
+                                        text_color: palette.background.strong.text,
+                                        border: Border {
+                                            radius: 8.0.into(),
+                                            ..Default::default()
+                                        },
+                                        ..Default::default()
+                                    }
+                                }),
+                            button(text("Rename").align_x(Alignment::Center))
+                                .on_press(Message::RenameSubmitted)
+                                .padding(8)
+                                .width(Length::Fill)
+                                .style(|theme: &iced::Theme, _status| {
+                                    let palette = theme.extended_palette();
+                                    button::Style {
+                                        background: Some(palette.primary.base.color.into()),
+                                        text_color: palette.primary.base.text,
+                                        border: Border {
+                                            radius: 8.0.into(),
+                                            ..Default::default()
+                                        },
+                                        ..Default::default()
+                                    }
+                                }),
+                        ]
+                        .spacing(12)
+                    ]
+                    .spacing(16)
+                    .padding(20)
+                    .width(Length::Fixed(300.0))
+                )
+                .style(|theme: &iced::Theme| {
+                    let palette = theme.extended_palette();
+                    container::Style {
+                        background: Some(palette.background.base.color.into()),
+                        border: Border {
+                            color: palette.background.strong.color,
+                            width: 1.0,
+                            radius: 12.0.into(),
+                        },
+                        ..Default::default()
+                    }
+                })
+            )
+            .width(Length::Fill)
+            .height(Length::Fill)
+            .center_x(Length::Fill)
+            .center_y(Length::Fill)
+            .style(|_| container::Style {
+                background: Some(Color {
+                    a: 0.5,
+                    ..Color::BLACK
+                }.into()),
+                ..Default::default()
+            });
+
+            stack![
+                content,
+                mouse_area(dialog).on_press(Message::CancelRename)
             ].into()
         } else {
             content.into()

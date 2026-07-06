@@ -13,11 +13,14 @@
     - rename
     - unzip file
     - zip selected
+    - create new folder
+    - create new file
 
 *Medium prio:
 [] Add sorting based on date, name, size, or type.
 [] List view with item details
 [] Navigation bar with ability to click path to navigate there
+[] Add box selection with mouse
 
 *Low prio:
 [] Get file info (opens new small window with size, extension, full name)
