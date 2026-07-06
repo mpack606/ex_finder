@@ -7,6 +7,7 @@ pub enum ContextMenuAction {
     Copy(PathBuf),
     Paste,
     MoveToTrash(PathBuf),
+    Refresh,
 }
 
 #[derive(Debug, Clone)]
@@ -46,6 +47,8 @@ pub fn view(
         };
         menu_items.push(menu_item("Paste".to_string(), action, clipboard_has_item));
     }
+
+    menu_items.push(menu_item("Refresh".to_string(), Some(ContextMenuAction::Refresh), true));
 
     if menu_items.is_empty() {
         return column![].into();
@@ -115,6 +118,9 @@ pub fn handle_action(
             Task::perform(async move {
                 let _ = trash::delete(path);
             }, |_| Some(ContextMenuEvent::Refresh))
+        }
+        ContextMenuAction::Refresh => {
+            Task::done(Some(ContextMenuEvent::Refresh))
         }
     }
 }
