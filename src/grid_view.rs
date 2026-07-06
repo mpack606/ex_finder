@@ -9,6 +9,7 @@ pub struct DirectoryItem {
     pub path: PathBuf,
     pub name: String,
     pub is_dir: bool,
+    pub is_hidden: bool,
     pub app_icon: Option<PathBuf>,
 }
 
@@ -30,15 +31,14 @@ pub fn read_directory(path: &Path) -> Result<Vec<DirectoryItem>, std::io::Error>
             .map(|name| name.to_string_lossy().into_owned())
             .unwrap_or_default();
 
-        if file_name.starts_with('.') {
-            continue;
-        }
+        let is_hidden = file_name.starts_with('.');
 
         let is_dir = entry_path.is_dir();
         items.push(DirectoryItem {
             path: entry_path,
             name: file_name,
             is_dir,
+            is_hidden,
             app_icon: None,
         });
     }
@@ -52,6 +52,44 @@ pub fn read_directory(path: &Path) -> Result<Vec<DirectoryItem>, std::io::Error>
     });
 
     Ok(items)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::fs::File;
+
+    #[test]
+    fn test_read_directory_includes_hidden() {
+        let mut dir_path = std::env::temp_dir();
+        dir_path.push(format!("ex_finder_test_{}", std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()));
+        fs::create_dir_all(&dir_path).unwrap();
+
+        File::create(dir_path.join("visible.txt")).unwrap();
+        File::create(dir_path.join(".hidden.txt")).unwrap();
+        fs::create_dir(dir_path.join(".hidden_dir")).unwrap();
+        fs::create_dir(dir_path.join("visible_dir")).unwrap();
+
+        let result = read_directory(&dir_path);
+        
+        // Cleanup before asserts to ensure it happens
+        let _ = fs::remove_dir_all(&dir_path);
+
+        let items = result.unwrap();
+        assert_eq!(items.len(), 4);
+        
+        let hidden_file = items.iter().find(|i| i.name == ".hidden.txt").unwrap();
+        assert!(hidden_file.is_hidden);
+        assert!(!hidden_file.is_dir);
+
+        let hidden_dir = items.iter().find(|i| i.name == ".hidden_dir").unwrap();
+        assert!(hidden_dir.is_hidden);
+        assert!(hidden_dir.is_dir);
+
+        let visible_file = items.iter().find(|i| i.name == "visible.txt").unwrap();
+        assert!(!visible_file.is_hidden);
+        assert!(!visible_file.is_dir);
+    }
 }
 
 pub fn view(
@@ -134,17 +172,39 @@ pub fn view(
                     .into()
             };
 
-            let item_btn = button(
-                column![
-                    icon,
-                    text(display_name)
-                        .size(12)
+            let is_hidden = item.is_hidden;
+            let item_column = column![
+                icon,
+                text(display_name)
+                    .size(12)
+                    .width(Length::Fill)
+                    .align_x(Alignment::Center)
+            ]
+            .align_x(Alignment::Center)
+            .spacing(6);
+
+            let button_content: Element<_> = if is_hidden {
+                stack![
+                    item_column,
+                    container(column![])
                         .width(Length::Fill)
-                        .align_x(Alignment::Center)
-                ]
-                .align_x(Alignment::Center)
-                .spacing(6)
-            )
+                        .height(Length::Fill)
+                        .style(|theme: &iced::Theme| {
+                            let palette = theme.extended_palette();
+                            container::Style {
+                                background: Some(Color {
+                                    a: 0.4,
+                                    ..palette.background.base.color
+                                }.into()),
+                                ..Default::default()
+                            }
+                        })
+                ].into()
+            } else {
+                item_column.into()
+            };
+
+            let item_btn = button(button_content)
             .width(Length::Fixed(100.0))
             .padding(10)
             .on_press(GridMessage::ItemClicked(path_clone.clone(), is_dir))
@@ -172,9 +232,14 @@ pub fn view(
                     }
                 };
 
+                let mut text_color = palette.background.strong.text;
+                if is_hidden {
+                    text_color.a = 0.5;
+                }
+
                 iced::widget::button::Style {
                     background: bg,
-                    text_color: palette.background.strong.text,
+                    text_color,
                     border,
                     ..Default::default()
                 }

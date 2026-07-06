@@ -23,6 +23,7 @@
 [] Add box selection with mouse
 
 *Low prio:
+[] Recent locations (display last 5 folders opened below quick access)
 [] Get file info (opens new small window with size, extension, full name)
 [] Swap places of navigation bar and bottom bar
 [] Improve text display (mostly font)
