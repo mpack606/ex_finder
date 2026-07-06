@@ -7,8 +7,9 @@ use crate::settings;
 use crate::sidebar;
 use crate::icons;
 use crate::app_icons;
+use crate::context_menu;
 use iced::{Element, Task, Size, Length, Alignment, Border, keyboard, Event};
-use iced::widget::{button, column, row, svg};
+use iced::widget::{button, column, row, svg, stack};
 use std::path::{PathBuf};
 use std::time::{Duration, Instant};
 
@@ -24,6 +25,9 @@ pub struct App {
     window_width: f32,
     window_height: f32,
     last_click: Option<(PathBuf, Instant)>,
+    cursor_position: iced::Point,
+    context_menu: Option<context_menu::ContextMenuState>,
+    clipboard: Option<PathBuf>,
 }
 
 #[derive(Debug, Clone)]
@@ -34,6 +38,9 @@ pub enum Message {
     Grid(grid_view::GridMessage),
     AppIconFound(String, Option<PathBuf>),
     WindowResized(iced::window::Id, Size),
+    MouseMoved(iced::Point),
+    ContextMenu(context_menu::ContextMenuMessage),
+    Refresh,
     NavigateBack,
     NavigateForward,
     NavigateUp,
@@ -63,6 +70,9 @@ impl App {
             window_width: settings.window_width as f32,
             window_height: settings.window_height as f32,
             last_click: None,
+            cursor_position: iced::Point::ORIGIN,
+            context_menu: None,
+            clipboard: None,
         };
 
         let task = app.load_app_icons();
@@ -120,6 +130,7 @@ impl App {
             Message::Grid(grid_msg) => {
                 match grid_msg {
                     grid_view::GridMessage::ItemClicked(path, is_dir) => {
+                        self.context_menu = None;
                         let now = Instant::now();
                         let is_double_click = if let Some((last_path, last_time)) = &self.last_click {
                             *last_path == path && now.duration_since(*last_time) < Duration::from_millis(300)
@@ -142,8 +153,43 @@ impl App {
                             self.selected_item = Some(path);
                         }
                     }
+                    grid_view::GridMessage::ItemRightClicked(path, is_dir) => {
+                        self.selected_item = Some(path.clone());
+                        self.context_menu = Some(context_menu::ContextMenuState {
+                            position: self.cursor_position,
+                            path: Some((path, is_dir)),
+                        });
+                    }
                     grid_view::GridMessage::BackgroundClicked => {
                         self.selected_item = None;
+                        self.context_menu = None;
+                    }
+                    grid_view::GridMessage::BackgroundRightClicked => {
+                        self.context_menu = Some(context_menu::ContextMenuState {
+                            position: self.cursor_position,
+                            path: None,
+                        });
+                    }
+                }
+            }
+            Message::MouseMoved(position) => {
+                self.cursor_position = position;
+            }
+            Message::ContextMenu(context_msg) => {
+                match context_msg {
+                    context_menu::ContextMenuMessage::Close => {
+                        self.context_menu = None;
+                    }
+                    context_menu::ContextMenuMessage::Action(action) => {
+                        self.context_menu = None;
+                        return context_menu::handle_action(
+                            action,
+                            &mut self.clipboard,
+                            self.navigation.current_path.clone(),
+                        ).map(|event| match event {
+                            Some(context_menu::ContextMenuEvent::Refresh) => Message::Refresh,
+                            None => Message::None,
+                        });
                     }
                 }
             }
@@ -179,6 +225,10 @@ impl App {
                     return self.navigate_to_path(parent);
                 }
             }
+            Message::Refresh => {
+                self.grid_items = grid_view::read_directory(&self.navigation.current_path).unwrap_or_default();
+                return self.load_app_icons();
+            }
             Message::None => {}
         }
         Task::none()
@@ -198,6 +248,7 @@ impl App {
         self.address_input = current.to_string_lossy().into_owned();
         self.address_invalid = false;
         self.selected_item = None;
+        self.context_menu = None;
         self.grid_items = grid_view::read_directory(current).unwrap_or_default();
         self.load_app_icons()
     }
@@ -364,13 +415,22 @@ impl App {
         .width(Length::Fill)
         .height(Length::Fill);
 
-        column![
+        let content = column![
             top_row,
             body
         ]
         .width(Length::Fill)
-        .height(Length::Fill)
-        .into()
+        .height(Length::Fill);
+
+        if let Some(context_menu) = &self.context_menu {
+            stack![
+                content,
+                context_menu::view(context_menu, self.clipboard.is_some())
+                    .map(Message::ContextMenu)
+            ].into()
+        } else {
+            content.into()
+        }
     }
 
     pub fn subscription(&self) -> iced::Subscription<Message> {
@@ -378,6 +438,9 @@ impl App {
             iced::window::resize_events().map(|(id, size)| Message::WindowResized(id, size)),
             iced::event::listen().filter_map(|event| {
                 match event {
+                    Event::Mouse(iced::mouse::Event::CursorMoved { position }) => {
+                        return Some(Message::MouseMoved(position));
+                    }
                     Event::Keyboard(keyboard::Event::KeyReleased { key, .. }) => {
                         if let keyboard::Key::Named(keyboard::key::Named::Escape) = key {
                             return Some(Message::Search(search::SearchMessage::Clear));

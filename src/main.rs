@@ -8,6 +8,7 @@ mod search;
 mod grid_view;
 mod bottom_bar;
 mod icons;
+mod context_menu;
 
 use app::App;
 use iced::Theme;

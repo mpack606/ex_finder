@@ -15,7 +15,9 @@ pub struct DirectoryItem {
 #[derive(Debug, Clone)]
 pub enum GridMessage {
     ItemClicked(PathBuf, bool),
+    ItemRightClicked(PathBuf, bool),
     BackgroundClicked,
+    BackgroundRightClicked,
 }
 
 pub fn read_directory(path: &Path) -> Result<Vec<DirectoryItem>, std::io::Error> {
@@ -145,7 +147,7 @@ pub fn view(
             )
             .width(Length::Fixed(100.0))
             .padding(10)
-            .on_press(GridMessage::ItemClicked(path_clone, is_dir))
+            .on_press(GridMessage::ItemClicked(path_clone.clone(), is_dir))
             .style(move |theme: &iced::Theme, status| {
                 let palette = theme.extended_palette();
                 let bg = if is_selected {
@@ -178,7 +180,10 @@ pub fn view(
                 }
             });
 
-            grid_row = grid_row.push(item_btn);
+            let item_view = mouse_area(item_btn)
+                .on_right_press(GridMessage::ItemRightClicked(path_clone, is_dir));
+
+            grid_row = grid_row.push(item_view);
         }
         grid_col = grid_col.push(grid_row);
     }
@@ -194,5 +199,6 @@ pub fn view(
             .padding(10)
     )
     .on_press(GridMessage::BackgroundClicked)
+    .on_right_press(GridMessage::BackgroundRightClicked)
     .into()
 }
