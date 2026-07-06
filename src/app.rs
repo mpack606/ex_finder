@@ -6,6 +6,7 @@ use crate::navigation;
 use crate::settings;
 use crate::sidebar;
 use crate::icons;
+use crate::app_icons;
 use iced::{Element, Task, Size, Length, Alignment, Border, keyboard, Event};
 use iced::widget::{button, column, row, svg};
 use std::path::{PathBuf};
@@ -31,6 +32,7 @@ pub enum Message {
     AddressBar(address_bar::AddressBarMessage),
     Search(search::SearchMessage),
     Grid(grid_view::GridMessage),
+    AppIconFound(String, Option<PathBuf>),
     WindowResized(iced::window::Id, Size),
     NavigateBack,
     NavigateForward,
@@ -49,22 +51,23 @@ impl App {
         let sidebar_paths = settings.quick_access_paths.clone();
         let address_input = initial_path.to_string_lossy().into_owned();
 
-        (
-            Self {
-                settings: settings.clone(),
-                navigation: navigation::NavigationState::new(initial_path),
-                sidebar_paths,
-                address_input,
-                address_invalid: false,
-                search_query: String::new(),
-                grid_items,
-                selected_item: None,
-                window_width: settings.window_width as f32,
-                window_height: settings.window_height as f32,
-                last_click: None,
-            },
-            Task::none(),
-        )
+        let app = Self {
+            settings: settings.clone(),
+            navigation: navigation::NavigationState::new(initial_path),
+            sidebar_paths,
+            address_input,
+            address_invalid: false,
+            search_query: String::new(),
+            grid_items,
+            selected_item: None,
+            window_width: settings.window_width as f32,
+            window_height: settings.window_height as f32,
+            last_click: None,
+        };
+
+        let task = app.load_app_icons();
+
+        (app, task)
     }
 
     pub fn update(&mut self, message: Message) -> Task<Message> {
@@ -72,7 +75,7 @@ impl App {
             Message::Sidebar(sidebar_msg) => {
                 match sidebar_msg {
                     sidebar::SidebarMessage::SelectPath(path) => {
-                        self.navigate_to_path(path);
+                        return self.navigate_to_path(path);
                     }
                     sidebar::SidebarMessage::AddCurrentPath(path) => {
                         if !self.settings.quick_access_paths.contains(&path) {
@@ -97,7 +100,7 @@ impl App {
                         let path = PathBuf::from(&self.address_input);
                         if path.exists() && path.is_dir() {
                             self.address_invalid = false;
-                            self.navigate_to_path(path);
+                            return self.navigate_to_path(path);
                         } else {
                             self.address_invalid = true;
                         }
@@ -128,7 +131,7 @@ impl App {
 
                         if is_double_click {
                             if is_dir {
-                                self.navigate_to_path(path);
+                                return self.navigate_to_path(path);
                             } else {
                                 let path_clone = path.clone();
                                 return Task::perform(async move {
@@ -144,6 +147,15 @@ impl App {
                     }
                 }
             }
+            Message::AppIconFound(ext, icon_path) => {
+                for item in self.grid_items.iter_mut() {
+                    if let Some(item_ext) = item.path.extension().and_then(|e| e.to_str()) {
+                        if item_ext == ext {
+                            item.app_icon = icon_path.clone();
+                        }
+                    }
+                }
+            }
             Message::WindowResized(_id, size) => {
                 self.window_width = size.width;
                 self.window_height = size.height;
@@ -153,18 +165,18 @@ impl App {
             }
             Message::NavigateBack => {
                 if self.navigation.navigate_back() {
-                    self.on_navigation_changed();
+                    return self.on_navigation_changed();
                 }
             }
             Message::NavigateForward => {
                 if self.navigation.navigate_forward() {
-                    self.on_navigation_changed();
+                    return self.on_navigation_changed();
                 }
             }
             Message::NavigateUp => {
                 if let Some(parent) = self.navigation.current_path.parent() {
                     let parent = parent.to_path_buf();
-                    self.navigate_to_path(parent);
+                    return self.navigate_to_path(parent);
                 }
             }
             Message::None => {}
@@ -172,20 +184,42 @@ impl App {
         Task::none()
     }
 
-    fn navigate_to_path(&mut self, path: PathBuf) {
+    fn navigate_to_path(&mut self, path: PathBuf) -> Task<Message> {
         self.navigation.navigate_to(path.clone());
-        self.on_navigation_changed();
+        let task = self.on_navigation_changed();
         
         self.settings.last_directory = Some(path);
         let _ = settings::save_settings(&self.settings);
+        task
     }
 
-    fn on_navigation_changed(&mut self) {
+    fn on_navigation_changed(&mut self) -> Task<Message> {
         let current = &self.navigation.current_path;
         self.address_input = current.to_string_lossy().into_owned();
         self.address_invalid = false;
         self.selected_item = None;
         self.grid_items = grid_view::read_directory(current).unwrap_or_default();
+        self.load_app_icons()
+    }
+
+    fn load_app_icons(&self) -> Task<Message> {
+        let mut extensions = std::collections::HashSet::new();
+        for item in &self.grid_items {
+            if !item.is_dir {
+                if let Some(ext) = item.path.extension().and_then(|e| e.to_str()) {
+                    extensions.insert(ext.to_string());
+                }
+            }
+        }
+
+        let tasks = extensions.into_iter().map(|ext| {
+            Task::perform(async move {
+                let icon = app_icons::get_app_icon_for_extension(&ext);
+                (ext, icon)
+            }, |(ext, icon)| Message::AppIconFound(ext, icon))
+        });
+
+        Task::batch(tasks)
     }
 
     pub fn title(&self) -> String {

@@ -1,4 +1,4 @@
-use iced::widget::{button, column, row, scrollable, text, container, svg, mouse_area, stack};
+use iced::widget::{button, column, row, scrollable, text, container, svg, mouse_area, stack, image};
 use iced::{Element, Length, Color, Alignment, Font, font};
 use crate::icons;
 use std::fs;
@@ -9,6 +9,7 @@ pub struct DirectoryItem {
     pub path: PathBuf,
     pub name: String,
     pub is_dir: bool,
+    pub app_icon: Option<PathBuf>,
 }
 
 #[derive(Debug, Clone)]
@@ -36,6 +37,7 @@ pub fn read_directory(path: &Path) -> Result<Vec<DirectoryItem>, std::io::Error>
             path: entry_path,
             name: file_name,
             is_dir,
+            app_icon: None,
         });
     }
 
@@ -84,7 +86,7 @@ pub fn view(
                     .into()
             } else if let Some(ext) = item.path.extension().and_then(|e| e.to_str()) {
                 let ext_str = ext.to_uppercase();
-                stack![
+                let mut icon_stack = stack![
                     svg(svg::Handle::from_memory(icons::FILE_SVG))
                         .width(48)
                         .height(48),
@@ -106,8 +108,23 @@ pub fn view(
                         top: 12.0,
                         ..Default::default()
                     })
-                ]
-                .into()
+                ];
+
+                if let Some(app_icon_path) = &item.app_icon {
+                    icon_stack = icon_stack.push(
+                        container(
+                            image(app_icon_path.clone())
+                                .width(16)
+                                .height(16)
+                        )
+                        .width(48)
+                        .height(48)
+                        .align_x(Alignment::End)
+                        .align_y(Alignment::End)
+                    );
+                }
+                
+                icon_stack.into()
             } else {
                 svg(svg::Handle::from_memory(icons::FILE_SVG))
                     .width(48)

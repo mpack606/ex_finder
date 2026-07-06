@@ -1,3 +1,4 @@
+mod app_icons;
 mod app;
 mod settings;
 mod navigation;

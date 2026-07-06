@@ -1,11 +1,14 @@
 [] Add sorting based on date, name, size, or type.
 [] Navigation bar with ability to click path to navigate there
 [] Right click menu
+    - open with...
     - copy
     - paste
     - cut
     - rename
     - move to thrash
+    - unzip file
+    - zip selected
 [] Tabs
 [] List view with item details
 [] Search in folder
@@ -17,6 +20,10 @@
     - ctrl v - paste
     - ctrl x - cut
     - delete - delete
+[] Add program icon
+[] Show hidden files (grayed)
+[] Show small icon of program that will open file on double click
+[] Get file info (opens new small window with size, extension, full name)
 
 Technical improvements:
 [] Make IO async so big folders dont wait for eternity to open
