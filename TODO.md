@@ -1,5 +1,4 @@
 *High prio:
-[] Show hidden files (grayed)
 [] Tabs
 [] Add keyboard shortcuts
     - ctrl f - search
