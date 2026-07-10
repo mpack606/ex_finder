@@ -13,6 +13,15 @@ serde = { version = "1.0.228", features = ["derive"] }
 toml = "1.1.2"
 trash = "5.1.2"
 
+[package.metadata.bundle]
+name = "ex_finder"
+identifier = "com.mpack606.ex_finder"
+icon = ["src/icon.png"]
+version = "0.1.0"
+copyright = "Copyright © 2024. All rights reserved."
+category = "Utility"
+short_description = "A lightweight macOS Finder replacement built with Rust."
+
 # The profile that 'dist' will build with
 [profile.dist]
 inherits = "release"

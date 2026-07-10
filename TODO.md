@@ -1,5 +1,4 @@
 *High prio:
-[] Tabs with side by side view
 [] Add keyboard shortcuts
     - ctrl f - search
     - ctrl c - copy
@@ -31,6 +30,7 @@
 [] Get file info (opens new small window with size, extension, full name)
 [] Swap places of navigation bar and bottom bar
 [] Improve text display (mostly font)
+[] Display tabs side by side
 
 Technical improvements:
 [] Make IO async so big folders dont wait for eternity to open

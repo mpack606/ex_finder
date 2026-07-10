@@ -2,12 +2,12 @@ use crate::address_bar;
 use crate::search;
 use crate::grid_view;
 use crate::bottom_bar;
-use crate::navigation;
 use crate::settings;
 use crate::sidebar;
 use crate::icons;
 use crate::app_icons;
 use crate::context_menu;
+use crate::tabs;
 use iced::{Element, Task, Size, Length, Alignment, Border, Color, keyboard, Event};
 use iced::widget::{button, column, row, svg, stack, text_input, container, mouse_area, text};
 use std::path::{PathBuf};
@@ -15,7 +15,7 @@ use std::time::{Duration, Instant};
 
 pub struct App {
     settings: settings::Settings,
-    navigation: navigation::NavigationState,
+    tabs_state: tabs::TabsState,
     sidebar_paths: Vec<PathBuf>,
     address_input: String,
     address_invalid: bool,
@@ -41,6 +41,7 @@ pub enum Message {
     WindowResized(iced::window::Id, Size),
     MouseMoved(iced::Point),
     ContextMenu(context_menu::ContextMenuMessage),
+    Tabs(tabs::TabsMessage),
     RenameRequested(PathBuf),
     RenameInputChanged(String),
     RenameSubmitted,
@@ -65,7 +66,7 @@ impl App {
 
         let app = Self {
             settings: settings.clone(),
-            navigation: navigation::NavigationState::new(initial_path),
+            tabs_state: tabs::TabsState::new(initial_path),
             sidebar_paths,
             address_input,
             address_invalid: false,
@@ -104,6 +105,14 @@ impl App {
                         self.settings.quick_access_paths.retain(|p| p != &path);
                         self.sidebar_paths = self.settings.quick_access_paths.clone();
                         let _ = settings::save_settings(&self.settings);
+                    }
+                    sidebar::SidebarMessage::ItemRightClicked(path) => {
+                        self.selected_item = Some(path.clone());
+                        self.context_menu = Some(context_menu::ContextMenuState {
+                            position: self.cursor_position,
+                            path: Some((path, true)), // Sidebar items are always folders
+                            is_sidebar: true,
+                        });
                     }
                 }
             }
@@ -164,6 +173,7 @@ impl App {
                         self.context_menu = Some(context_menu::ContextMenuState {
                             position: self.cursor_position,
                             path: Some((path, is_dir)),
+                            is_sidebar: false,
                         });
                     }
                     grid_view::GridMessage::BackgroundClicked => {
@@ -174,6 +184,7 @@ impl App {
                         self.context_menu = Some(context_menu::ContextMenuState {
                             position: self.cursor_position,
                             path: None,
+                            is_sidebar: false,
                         });
                     }
                 }
@@ -191,19 +202,25 @@ impl App {
                         return context_menu::handle_action(
                             action,
                             &mut self.clipboard,
-                            self.navigation.current_path.clone(),
+                            self.tabs_state.active_path().clone(),
                         ).map(|event| match event {
                             Some(context_menu::ContextMenuEvent::Refresh) => Message::Refresh,
                             Some(context_menu::ContextMenuEvent::Rename(path)) => {
                                 let name = path.file_name().unwrap_or_default().to_string_lossy().into_owned();
                                 Message::RenameInputChanged(name);
-                                // We need to set renaming_path here.
-                                // Actually, it's better to return a message that sets it.
                                 Message::RenameRequested(path)
+                            }
+                            Some(context_menu::ContextMenuEvent::OpenInNewTab(path)) => {
+                                Message::Tabs(tabs::TabsMessage::OpenTab(path))
                             }
                             None => Message::None,
                         });
                     }
+                }
+            }
+            Message::Tabs(tabs_msg) => {
+                if let Some(tabs::TabsEvent::NavigationChanged) = self.tabs_state.update(tabs_msg) {
+                    return self.on_navigation_changed();
                 }
             }
             Message::RenameRequested(path) => {
@@ -253,23 +270,23 @@ impl App {
                 let _ = settings::save_settings(&self.settings);
             }
             Message::NavigateBack => {
-                if self.navigation.navigate_back() {
+                if self.tabs_state.active_tab_mut().navigate_back() {
                     return self.on_navigation_changed();
                 }
             }
             Message::NavigateForward => {
-                if self.navigation.navigate_forward() {
+                if self.tabs_state.active_tab_mut().navigate_forward() {
                     return self.on_navigation_changed();
                 }
             }
             Message::NavigateUp => {
-                if let Some(parent) = self.navigation.current_path.parent() {
+                if let Some(parent) = self.tabs_state.active_path().parent() {
                     let parent = parent.to_path_buf();
                     return self.navigate_to_path(parent);
                 }
             }
             Message::Refresh => {
-                self.grid_items = grid_view::read_directory(&self.navigation.current_path).unwrap_or_default();
+                self.grid_items = grid_view::read_directory(self.tabs_state.active_path()).unwrap_or_default();
                 return self.load_app_icons();
             }
             Message::None => {}
@@ -278,7 +295,7 @@ impl App {
     }
 
     fn navigate_to_path(&mut self, path: PathBuf) -> Task<Message> {
-        self.navigation.navigate_to(path.clone());
+        self.tabs_state.active_tab_mut().navigate_to(path.clone());
         let task = self.on_navigation_changed();
         
         self.settings.last_directory = Some(path);
@@ -287,12 +304,12 @@ impl App {
     }
 
     fn on_navigation_changed(&mut self) -> Task<Message> {
-        let current = &self.navigation.current_path;
+        let current = self.tabs_state.active_path().clone();
         self.address_input = current.to_string_lossy().into_owned();
         self.address_invalid = false;
         self.selected_item = None;
         self.context_menu = None;
-        self.grid_items = grid_view::read_directory(current).unwrap_or_default();
+        self.grid_items = grid_view::read_directory(&current).unwrap_or_default();
         self.load_app_icons()
     }
 
@@ -317,7 +334,7 @@ impl App {
     }
 
     pub fn title(&self) -> String {
-        format!("ex_finder - {}", self.navigation.current_path.to_string_lossy())
+        format!("ex_finder - {}", self.tabs_state.active_path().to_string_lossy())
     }
 
     pub fn view(&self) -> Element<'_, Message> {
@@ -430,7 +447,7 @@ impl App {
         .align_y(Alignment::Center)
         .padding(8);
 
-        let sidebar_element = sidebar::view(&self.sidebar_paths, &self.navigation.current_path)
+        let sidebar_element = sidebar::view(&self.sidebar_paths, self.tabs_state.active_path())
             .map(Message::Sidebar);
 
         let filtered_items: Vec<_> = if self.search_query.is_empty() {
@@ -448,12 +465,15 @@ impl App {
 
         let bottom_bar = bottom_bar::view(self.selected_item.as_deref());
 
+        let mut main_content = column![];
+        if self.tabs_state.list.len() > 1 {
+            main_content = main_content.push(tabs::view(&self.tabs_state).map(Message::Tabs));
+        }
+        main_content = main_content.push(grid_element).push(bottom_bar);
+
         let body = row![
             sidebar_element,
-            column![
-                grid_element,
-                bottom_bar
-            ]
+            main_content
         ]
         .width(Length::Fill)
         .height(Length::Fill);

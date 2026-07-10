@@ -10,6 +10,7 @@ mod bottom_bar;
 mod icons;
 mod context_menu;
 mod updater;
+mod tabs;
 
 use app::App;
 use iced::Theme;

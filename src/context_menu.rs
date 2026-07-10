@@ -4,6 +4,7 @@ use std::path::PathBuf;
 
 #[derive(Debug, Clone)]
 pub enum ContextMenuAction {
+    OpenInNewTab(PathBuf),
     Copy(PathBuf),
     Paste,
     Rename(PathBuf),
@@ -21,11 +22,13 @@ pub enum ContextMenuMessage {
 pub enum ContextMenuEvent {
     Refresh,
     Rename(PathBuf),
+    OpenInNewTab(PathBuf),
 }
 
 pub struct ContextMenuState {
     pub position: Point,
     pub path: Option<(PathBuf, bool)>,
+    pub is_sidebar: bool,
 }
 
 pub fn view(
@@ -37,9 +40,15 @@ pub fn view(
 
     if let Some((path, is_dir)) = &state.path {
         is_folder = *is_dir;
+        if is_folder {
+            menu_items.push(menu_item("Open in new tab".to_string(), Some(ContextMenuAction::OpenInNewTab(path.clone())), true));
+        }
         menu_items.push(menu_item("Copy".to_string(), Some(ContextMenuAction::Copy(path.clone())), true));
-        menu_items.push(menu_item("Rename".to_string(), Some(ContextMenuAction::Rename(path.clone())), true));
-        menu_items.push(menu_item("Move to trash".to_string(), Some(ContextMenuAction::MoveToTrash(path.clone())), true));
+        
+        if !state.is_sidebar {
+            menu_items.push(menu_item("Rename".to_string(), Some(ContextMenuAction::Rename(path.clone())), true));
+            menu_items.push(menu_item("Move to trash".to_string(), Some(ContextMenuAction::MoveToTrash(path.clone())), true));
+        }
     }
 
     if is_folder {
@@ -96,6 +105,9 @@ pub fn handle_action(
     current_path: PathBuf,
 ) -> Task<Option<ContextMenuEvent>> {
     match action {
+        ContextMenuAction::OpenInNewTab(path) => {
+            Task::done(Some(ContextMenuEvent::OpenInNewTab(path)))
+        }
         ContextMenuAction::Copy(path) => {
             *clipboard = Some(path);
             Task::done(Some(ContextMenuEvent::Refresh))

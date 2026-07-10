@@ -1,4 +1,4 @@
-use iced::widget::{button, column, text, container, row, svg, scrollable};
+use iced::widget::{button, column, text, container, row, svg, scrollable, mouse_area};
 use iced::{Element, Length};
 use crate::icons;
 use std::path::{Path, PathBuf};
@@ -8,6 +8,7 @@ pub enum SidebarMessage {
     SelectPath(PathBuf),
     AddCurrentPath(PathBuf),
     RemovePath(PathBuf),
+    ItemRightClicked(PathBuf),
 }
 
 pub fn view(quick_access_paths: &[PathBuf], current_path: &Path) -> Element<'static, SidebarMessage> {
@@ -96,8 +97,11 @@ pub fn view(quick_access_paths: &[PathBuf], current_path: &Path) -> Element<'sta
                 }
             });
 
+        let btn_with_right_click = mouse_area(btn)
+            .on_right_press(SidebarMessage::ItemRightClicked(path.clone()));
+
         list_col = list_col.push(
-            row![btn, remove_btn]
+            row![btn_with_right_click, remove_btn]
                 .align_y(iced::Alignment::Center)
                 .spacing(5)
         );
