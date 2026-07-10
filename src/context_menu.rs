@@ -9,6 +9,8 @@ pub enum ContextMenuAction {
     Paste,
     Rename(PathBuf),
     MoveToTrash(PathBuf),
+    Zip(PathBuf),
+    Unzip(PathBuf),
     Refresh,
 }
 
@@ -48,6 +50,11 @@ pub fn view(
         if !state.is_sidebar {
             menu_items.push(menu_item("Rename".to_string(), Some(ContextMenuAction::Rename(path.clone())), true));
             menu_items.push(menu_item("Move to trash".to_string(), Some(ContextMenuAction::MoveToTrash(path.clone())), true));
+            menu_items.push(menu_item("Zip".to_string(), Some(ContextMenuAction::Zip(path.clone())), true));
+            
+            if !*is_dir && path.extension().map_or(false, |ext| ext == "zip") {
+                menu_items.push(menu_item("Unzip".to_string(), Some(ContextMenuAction::Unzip(path.clone())), true));
+            }
         }
     }
 
@@ -136,6 +143,16 @@ pub fn handle_action(
         }
         ContextMenuAction::Rename(path) => {
             Task::done(Some(ContextMenuEvent::Rename(path)))
+        }
+        ContextMenuAction::Zip(path) => {
+            Task::perform(async move {
+                crate::archive_utils::zip_item(&path);
+            }, |_| Some(ContextMenuEvent::Refresh))
+        }
+        ContextMenuAction::Unzip(path) => {
+            Task::perform(async move {
+                crate::archive_utils::unzip_item(&path);
+            }, |_| Some(ContextMenuEvent::Refresh))
         }
         ContextMenuAction::Refresh => {
             Task::done(Some(ContextMenuEvent::Refresh))

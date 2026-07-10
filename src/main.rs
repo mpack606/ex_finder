@@ -11,6 +11,7 @@ mod icons;
 mod context_menu;
 mod updater;
 mod tabs;
+mod archive_utils;
 
 use app::App;
 use iced::Theme;

@@ -20,17 +20,20 @@
 *Medium prio:
 [] Add sorting based on date, name, size, or type.
 [] List view with item details
-[] Navigation bar with ability to click path to navigate there
-[] Add box selection with mouse
+[] Improve selection:
+    - drag to box select
+    - CMD + click to select multiple files
+    - SHIFT + click to select everything inbetween
 [] Drag and drop
 [] Search options - look in folders
+[] Navigation bar with ability to click path to navigate there
 
 *Low prio:
+[] Display tabs side by side
 [] Recent locations (display last 5 folders opened below quick access)
 [] Get file info (opens new small window with size, extension, full name)
 [] Swap places of navigation bar and bottom bar
 [] Improve text display (mostly font)
-[] Display tabs side by side
 
 Technical improvements:
 [] Make IO async so big folders dont wait for eternity to open
