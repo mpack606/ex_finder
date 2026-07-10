@@ -9,6 +9,7 @@ mod grid_view;
 mod bottom_bar;
 mod icons;
 mod context_menu;
+mod updater;
 
 use app::App;
 use iced::Theme;
@@ -21,7 +22,12 @@ fn theme(_state: &App) -> Theme {
     Theme::Dark
 }
 
-fn main() -> iced::Result {
+fn main() -> Result<(), Box<dyn std::error::Error>> {
+    // Check for updates before starting the GUI
+    if let Err(e) = updater::handle_updates() {
+        eprintln!("Update check failed: {}", e);
+    }
+
     let settings = settings::load_settings();
 
     let icon = iced::window::icon::from_file_data(include_bytes!("icon.png"), None)
@@ -40,4 +46,5 @@ fn main() -> iced::Result {
         .title(title)
         .theme(theme)
         .run()
+        .map_err(|e| e.into())
 }

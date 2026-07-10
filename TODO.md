@@ -1,11 +1,14 @@
 *High prio:
-[] Tabs
+[] Tabs with side by side view
 [] Add keyboard shortcuts
     - ctrl f - search
     - ctrl c - copy
     - ctrl v - paste
     - ctrl x - cut
     - delete - delete
+    - enter - rename
+    - ctrl n - new file
+    - ctrl d - new directory?
 [] Right click menu
     - open with...
     - cut
@@ -20,6 +23,8 @@
 [] List view with item details
 [] Navigation bar with ability to click path to navigate there
 [] Add box selection with mouse
+[] Drag and drop
+[] Search options - look in folders
 
 *Low prio:
 [] Recent locations (display last 5 folders opened below quick access)
