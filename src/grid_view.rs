@@ -21,6 +21,8 @@ pub enum GridMessage {
     BackgroundRightClicked,
 }
 
+pub(crate) const GRID_SCROLLABLE_ID: &str = "grid-view-scrollable";
+
 pub fn read_directory(path: &Path) -> Result<Vec<DirectoryItem>, std::io::Error> {
     let mut items = Vec::new();
     for entry in fs::read_dir(path)? {
@@ -89,6 +91,11 @@ mod tests {
         let visible_file = items.iter().find(|i| i.name == "visible.txt").unwrap();
         assert!(!visible_file.is_hidden);
         assert!(!visible_file.is_dir);
+    }
+
+    #[test]
+    fn grid_scrollable_uses_stable_identity() {
+        assert_eq!(GRID_SCROLLABLE_ID, "grid-view-scrollable");
     }
 }
 
@@ -254,6 +261,7 @@ pub fn view(
     }
 
     let scrollable_content = scrollable(grid_col)
+        .id(GRID_SCROLLABLE_ID)
         .width(Length::Fill)
         .height(Length::Fill);
 

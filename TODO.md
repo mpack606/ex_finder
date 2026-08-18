@@ -41,4 +41,3 @@ Technical improvements:
 [] Create file with layout constants
 
 Bugs:
-[] When scrolled to end right click moves slidebar to top

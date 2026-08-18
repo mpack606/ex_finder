@@ -485,12 +485,13 @@ impl App {
         .width(Length::Fill)
         .height(Length::Fill);
 
+        let mut root = stack![content];
+
         if let Some(context_menu) = &self.context_menu {
-            stack![
-                content,
+            root = root.push(
                 context_menu::view(context_menu, self.clipboard.is_some())
                     .map(Message::ContextMenu)
-            ].into()
+            );
         } else if let Some((_, input)) = &self.renaming_path {
             let dialog = container(
                 container(
@@ -571,13 +572,10 @@ impl App {
                 ..Default::default()
             });
 
-            stack![
-                content,
-                mouse_area(dialog).on_press(Message::CancelRename)
-            ].into()
-        } else {
-            content.into()
+            root = root.push(mouse_area(dialog).on_press(Message::CancelRename));
         }
+
+        root.into()
     }
 
     pub fn subscription(&self) -> iced::Subscription<Message> {
