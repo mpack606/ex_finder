@@ -11,6 +11,7 @@ pub enum ContextMenuAction {
     MoveToTrash(PathBuf),
     Zip(PathBuf),
     Unzip(PathBuf),
+    CreateNewFolder,
     Refresh,
 }
 
@@ -56,6 +57,14 @@ pub fn view(
                 menu_items.push(menu_item("Unzip".to_string(), Some(ContextMenuAction::Unzip(path.clone())), true));
             }
         }
+    }
+
+    if state.path.is_none() {
+        menu_items.push(menu_item(
+            "Create new folder".to_string(),
+            Some(ContextMenuAction::CreateNewFolder),
+            true,
+        ));
     }
 
     if is_folder {
@@ -154,6 +163,11 @@ pub fn handle_action(
                 crate::archive_utils::unzip_item(&path);
             }, |_| Some(ContextMenuEvent::Refresh))
         }
+        ContextMenuAction::CreateNewFolder => {
+            Task::perform(async move {
+                let _ = create_new_folder(current_path);
+            }, |_| Some(ContextMenuEvent::Refresh))
+        }
         ContextMenuAction::Refresh => {
             Task::done(Some(ContextMenuEvent::Refresh))
         }
@@ -172,6 +186,51 @@ fn copy_dir_all(src: impl AsRef<std::path::Path>, dst: impl AsRef<std::path::Pat
         }
     }
     Ok(())
+}
+
+fn create_new_folder(current_path: impl AsRef<std::path::Path>) -> std::io::Result<()> {
+    std::fs::create_dir(current_path.as_ref().join("New Folder"))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::fs;
+
+    #[test]
+    fn create_new_folder_creates_new_folder_in_current_directory() {
+        let current_path = std::env::temp_dir().join(format!(
+            "ex_finder_create_folder_{}",
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        fs::create_dir(&current_path).unwrap();
+
+        let result = create_new_folder(&current_path);
+
+        assert!(result.is_ok());
+        assert!(current_path.join("New Folder").is_dir());
+        fs::remove_dir_all(current_path).unwrap();
+    }
+
+    #[test]
+    fn create_new_folder_returns_error_when_folder_already_exists() {
+        let current_path = std::env::temp_dir().join(format!(
+            "ex_finder_create_folder_existing_{}",
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        fs::create_dir_all(current_path.join("New Folder")).unwrap();
+
+        let result = create_new_folder(&current_path);
+
+        assert!(result.is_err());
+        fs::remove_dir_all(current_path).unwrap();
+    }
 }
 
 fn menu_item(label: String, action: Option<ContextMenuAction>, enabled: bool) -> Element<'static, ContextMenuMessage> {
