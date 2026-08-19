@@ -21,6 +21,7 @@ pub struct App {
     address_invalid: bool,
     search_query: String,
     grid_items: Vec<grid_view::DirectoryItem>,
+    icon_load_generation: u64,
     selected_item: Option<PathBuf>,
     window_width: f32,
     window_height: f32,
@@ -37,7 +38,7 @@ pub enum Message {
     AddressBar(address_bar::AddressBarMessage),
     Search(search::SearchMessage),
     Grid(grid_view::GridMessage),
-    AppIconFound(String, Option<PathBuf>),
+    AppIconFound(PathBuf, u64, Option<Vec<u8>>),
     WindowResized(iced::window::Id, Size),
     MouseMoved(iced::Point),
     ContextMenu(context_menu::ContextMenuMessage),
@@ -64,7 +65,7 @@ impl App {
         let sidebar_paths = settings.quick_access_paths.clone();
         let address_input = initial_path.to_string_lossy().into_owned();
 
-        let app = Self {
+        let mut app = Self {
             settings: settings.clone(),
             tabs_state: tabs::TabsState::new(initial_path),
             sidebar_paths,
@@ -72,6 +73,7 @@ impl App {
             address_invalid: false,
             search_query: String::new(),
             grid_items,
+            icon_load_generation: 0,
             selected_item: None,
             window_width: settings.window_width as f32,
             window_height: settings.window_height as f32,
@@ -253,13 +255,13 @@ impl App {
             Message::CancelRename => {
                 self.renaming_path = None;
             }
-            Message::AppIconFound(ext, icon_path) => {
-                for item in self.grid_items.iter_mut() {
-                    if let Some(item_ext) = item.path.extension().and_then(|e| e.to_str()) {
-                        if item_ext == ext {
-                            item.app_icon = icon_path.clone();
-                        }
-                    }
+            Message::AppIconFound(path, generation, icon_bytes) => {
+                if generation != self.icon_load_generation {
+                    return Task::none();
+                }
+
+                if let Some(item) = self.grid_items.iter_mut().find(|item| item.path == path) {
+                    item.app_icon = icon_bytes.map(iced::widget::image::Handle::from_bytes);
                 }
             }
             Message::WindowResized(_id, size) => {
@@ -313,21 +315,21 @@ impl App {
         self.load_app_icons()
     }
 
-    fn load_app_icons(&self) -> Task<Message> {
-        let mut extensions = std::collections::HashSet::new();
-        for item in &self.grid_items {
-            if !item.is_dir {
-                if let Some(ext) = item.path.extension().and_then(|e| e.to_str()) {
-                    extensions.insert(ext.to_string());
-                }
-            }
-        }
+    fn load_app_icons(&mut self) -> Task<Message> {
+        self.icon_load_generation = self.icon_load_generation.wrapping_add(1);
+        let generation = self.icon_load_generation;
+        let paths = self
+            .grid_items
+            .iter()
+            .filter(|item| !item.is_dir)
+            .map(|item| item.path.clone())
+            .collect::<Vec<_>>();
 
-        let tasks = extensions.into_iter().map(|ext| {
+        let tasks = paths.into_iter().map(|path| {
             Task::perform(async move {
-                let icon = app_icons::get_app_icon_for_extension(&ext);
-                (ext, icon)
-            }, |(ext, icon)| Message::AppIconFound(ext, icon))
+                let icon = app_icons::get_app_icon_for_file(&path);
+                (path, generation, icon)
+            }, |(path, generation, icon)| Message::AppIconFound(path, generation, icon))
         });
 
         Task::batch(tasks)

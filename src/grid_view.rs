@@ -4,13 +4,13 @@ use crate::icons;
 use std::fs;
 use std::path::{Path, PathBuf};
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone)]
 pub struct DirectoryItem {
     pub path: PathBuf,
     pub name: String,
     pub is_dir: bool,
     pub is_hidden: bool,
-    pub app_icon: Option<PathBuf>,
+    pub app_icon: Option<iced::widget::image::Handle>,
 }
 
 #[derive(Debug, Clone)]
@@ -97,6 +97,19 @@ mod tests {
     fn grid_scrollable_uses_stable_identity() {
         assert_eq!(GRID_SCROLLABLE_ID, "grid-view-scrollable");
     }
+
+    #[test]
+    fn directory_item_keeps_loaded_icon_handle_in_state() {
+        let item = DirectoryItem {
+            path: PathBuf::from("/tmp/example.txt"),
+            name: String::from("example.txt"),
+            is_dir: false,
+            is_hidden: false,
+            app_icon: Some(image::Handle::from_bytes(Vec::new())),
+        };
+
+        assert!(item.app_icon.is_some());
+    }
 }
 
 pub fn view(
@@ -157,12 +170,10 @@ pub fn view(
                     })
                 ];
 
-                if let Some(app_icon_path) = &item.app_icon {
+                if let Some(app_icon_handle) = &item.app_icon {
                     icon_stack = icon_stack.push(
                         container(
-                            image(app_icon_path.clone())
-                                .width(16)
-                                .height(16)
+                            image(app_icon_handle.clone()).width(16).height(16)
                         )
                         .width(48)
                         .height(48)
