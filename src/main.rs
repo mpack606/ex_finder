@@ -32,7 +32,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let settings = settings::load_settings();
 
-    let icon = iced::window::icon::from_file_data(include_bytes!("icon.png"), None)
+    let icon = iced::window::icon::from_file_data(include_bytes!("../assets/icons/icon.png"), None)
         .inspect_err(|e| println!("Error while reading icon file:\n {}", e))
         .ok();
 

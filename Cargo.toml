@@ -19,9 +19,9 @@ objc2-app-kit = { version = "0.3.2", default-features = false, features = ["NSWo
 objc2-foundation = { version = "0.3.2", default-features = false }
 
 [package.metadata.bundle]
-name = "ex_finder"
+name = "ExFinder"
 identifier = "com.mpack606.ex_finder"
-icon = ["src/icon.png"]
+icon = ["src/assets/icon.png"]
 version = "0.1.0"
 copyright = "Copyright © 2024. All rights reserved."
 category = "Utility"
