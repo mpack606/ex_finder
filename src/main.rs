@@ -12,6 +12,7 @@ mod context_menu;
 mod updater;
 mod tabs;
 mod archive_utils;
+mod components;
 
 use app::App;
 use iced::Theme;
