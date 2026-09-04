@@ -5,11 +5,11 @@ use std::path::PathBuf;
 #[derive(Debug, Clone)]
 pub enum ContextMenuAction {
     OpenInNewTab(PathBuf),
-    Copy(PathBuf),
+    Copy(Vec<PathBuf>),
     Paste,
     Rename(PathBuf),
-    MoveToTrash(PathBuf),
-    Zip(PathBuf),
+    MoveToTrash(Vec<PathBuf>),
+    Zip(Vec<PathBuf>),
     Unzip(PathBuf),
     CreateNewFolder,
     Refresh,
@@ -30,7 +30,8 @@ pub enum ContextMenuEvent {
 
 pub struct ContextMenuState {
     pub position: Point,
-    pub path: Option<(PathBuf, bool)>,
+    pub paths: Vec<PathBuf>,
+    pub target_is_dir: bool,
     pub is_sidebar: bool,
 }
 
@@ -39,27 +40,32 @@ pub fn view(
     clipboard_has_item: bool,
 ) -> Element<'static, ContextMenuMessage> {
     let mut menu_items = Vec::new();
-    let mut is_folder = true;
+    let is_folder = if state.paths.is_empty() {
+        true
+    } else if state.paths.len() == 1 {
+        state.target_is_dir
+    } else {
+        false
+    };
 
-    if let Some((path, is_dir)) = &state.path {
-        is_folder = *is_dir;
-        if is_folder {
-            menu_items.push(menu_item("Open in new tab".to_string(), Some(ContextMenuAction::OpenInNewTab(path.clone())), true));
+    if !state.paths.is_empty() {
+        if state.paths.len() == 1 && state.target_is_dir {
+            menu_items.push(menu_item("Open in new tab".to_string(), Some(ContextMenuAction::OpenInNewTab(state.paths[0].clone())), true));
         }
-        menu_items.push(menu_item("Copy".to_string(), Some(ContextMenuAction::Copy(path.clone())), true));
+        menu_items.push(menu_item("Copy".to_string(), Some(ContextMenuAction::Copy(state.paths.clone())), true));
         
         if !state.is_sidebar {
-            menu_items.push(menu_item("Rename".to_string(), Some(ContextMenuAction::Rename(path.clone())), true));
-            menu_items.push(menu_item("Move to trash".to_string(), Some(ContextMenuAction::MoveToTrash(path.clone())), true));
-            menu_items.push(menu_item("Zip".to_string(), Some(ContextMenuAction::Zip(path.clone())), true));
+            if state.paths.len() == 1 {
+                menu_items.push(menu_item("Rename".to_string(), Some(ContextMenuAction::Rename(state.paths[0].clone())), true));
+            }
+            menu_items.push(menu_item("Move to trash".to_string(), Some(ContextMenuAction::MoveToTrash(state.paths.clone())), true));
+            menu_items.push(menu_item("Zip".to_string(), Some(ContextMenuAction::Zip(state.paths.clone())), true));
             
-            if !*is_dir && path.extension().map_or(false, |ext| ext == "zip") {
-                menu_items.push(menu_item("Unzip".to_string(), Some(ContextMenuAction::Unzip(path.clone())), true));
+            if state.paths.len() == 1 && !state.target_is_dir && state.paths[0].extension().map_or(false, |ext| ext == "zip") {
+                menu_items.push(menu_item("Unzip".to_string(), Some(ContextMenuAction::Unzip(state.paths[0].clone())), true));
             }
         }
-    }
-
-    if state.path.is_none() {
+    } else {
         menu_items.push(menu_item(
             "Create new folder".to_string(),
             Some(ContextMenuAction::CreateNewFolder),
@@ -117,45 +123,50 @@ pub fn view(
 
 pub fn handle_action(
     action: ContextMenuAction,
-    clipboard: &mut Option<PathBuf>,
+    clipboard: &mut Vec<PathBuf>,
     current_path: PathBuf,
 ) -> Task<Option<ContextMenuEvent>> {
     match action {
         ContextMenuAction::OpenInNewTab(path) => {
             Task::done(Some(ContextMenuEvent::OpenInNewTab(path)))
         }
-        ContextMenuAction::Copy(path) => {
-            *clipboard = Some(path);
+        ContextMenuAction::Copy(paths) => {
+            *clipboard = paths;
             Task::done(Some(ContextMenuEvent::Refresh))
         }
         ContextMenuAction::Paste => {
-            if let Some(src_path) = clipboard.clone() {
+            if !clipboard.is_empty() {
+                let src_paths = clipboard.clone();
                 let dest_dir = current_path;
                 Task::perform(async move {
-                    let file_name = src_path.file_name().unwrap();
-                    let dest_path = dest_dir.join(file_name);
-                    
-                    if src_path.is_dir() {
-                        let _ = copy_dir_all(&src_path, &dest_path);
-                    } else {
-                        let _ = std::fs::copy(&src_path, &dest_path);
+                    for src_path in src_paths {
+                        if let Some(file_name) = src_path.file_name() {
+                            let dest_path = dest_dir.join(file_name);
+                            if src_path.is_dir() {
+                                let _ = copy_dir_all(&src_path, &dest_path);
+                            } else {
+                                let _ = std::fs::copy(&src_path, &dest_path);
+                            }
+                        }
                     }
                 }, |_| Some(ContextMenuEvent::Refresh))
             } else {
                 Task::none()
             }
         }
-        ContextMenuAction::MoveToTrash(path) => {
+        ContextMenuAction::MoveToTrash(paths) => {
             Task::perform(async move {
-                let _ = trash::delete(path);
+                for path in paths {
+                    let _ = trash::delete(path);
+                }
             }, |_| Some(ContextMenuEvent::Refresh))
         }
         ContextMenuAction::Rename(path) => {
             Task::done(Some(ContextMenuEvent::Rename(path)))
         }
-        ContextMenuAction::Zip(path) => {
+        ContextMenuAction::Zip(paths) => {
             Task::perform(async move {
-                crate::archive_utils::zip_item(&path);
+                crate::archive_utils::zip_items(&paths);
             }, |_| Some(ContextMenuEvent::Refresh))
         }
         ContextMenuAction::Unzip(path) => {
@@ -230,6 +241,18 @@ mod tests {
 
         assert!(result.is_err());
         fs::remove_dir_all(current_path).unwrap();
+    }
+
+    #[test]
+    fn handle_action_copy_sets_multiple_paths_in_clipboard() {
+        let mut clipboard = Vec::new();
+        let paths = vec![PathBuf::from("/tmp/a.txt"), PathBuf::from("/tmp/b.txt")];
+        let _ = handle_action(
+            ContextMenuAction::Copy(paths.clone()),
+            &mut clipboard,
+            PathBuf::from("/tmp"),
+        );
+        assert_eq!(clipboard, paths);
     }
 }
 

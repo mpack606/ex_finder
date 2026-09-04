@@ -1,6 +1,7 @@
 use iced::widget::{button, column, row, scrollable, text, container, svg, mouse_area, stack, image};
-use iced::{Element, Length, Color, Alignment, Font, font};
+use iced::{Element, Length, Color, Alignment, Font, font, Point};
 use crate::icons;
+use std::collections::HashSet;
 use std::fs;
 use std::path::{Path, PathBuf};
 
@@ -13,11 +14,64 @@ pub struct DirectoryItem {
     pub app_icon: Option<iced::widget::image::Handle>,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct Rect {
+    pub x: f32,
+    pub y: f32,
+    pub width: f32,
+    pub height: f32,
+}
+
+impl Rect {
+    pub fn from_points(p1: Point, p2: Point) -> Self {
+        let x = p1.x.min(p2.x);
+        let y = p1.y.min(p2.y);
+        let width = (p1.x - p2.x).abs();
+        let height = (p1.y - p2.y).abs();
+        Self { x, y, width, height }
+    }
+
+    pub fn intersects(&self, other: &Rect) -> bool {
+        self.x < other.x + other.width
+            && self.x + self.width > other.x
+            && self.y < other.y + other.height
+            && self.y + self.height > other.y
+    }
+}
+
+pub const ITEM_WIDTH: f32 = 100.0;
+pub const ITEM_HEIGHT: f32 = 88.0;
+pub const SPACING: f32 = 16.0;
+pub const PADDING: f32 = 10.0;
+
+pub fn get_columns(window_width: f32) -> usize {
+    let sidebar_width = 200.0;
+    let grid_padding = 32.0;
+    let available_width = (window_width - sidebar_width - grid_padding).max(100.0);
+
+    let cell_width = 110.0;
+    ((available_width / cell_width) as usize).max(1)
+}
+
+pub fn item_rect(index: usize, columns: usize, scroll_y: f32) -> Rect {
+    let col = index % columns;
+    let row = index / columns;
+    Rect {
+        x: PADDING + (col as f32) * (ITEM_WIDTH + SPACING),
+        y: PADDING + (row as f32) * (ITEM_HEIGHT + SPACING) - scroll_y,
+        width: ITEM_WIDTH,
+        height: ITEM_HEIGHT,
+    }
+}
+
 #[derive(Debug, Clone)]
 pub enum GridMessage {
     ItemClicked(PathBuf, bool),
     ItemRightClicked(PathBuf, bool),
-    BackgroundClicked,
+    BackgroundDown,
+    BackgroundUp,
+    PointerMoved(Point),
+    Scrolled(f32),
     BackgroundRightClicked,
 }
 
@@ -110,26 +164,71 @@ mod tests {
 
         assert!(item.app_icon.is_some());
     }
+
+    #[test]
+    fn test_rect_from_points_and_intersects() {
+        let p1 = Point::new(10.0, 20.0);
+        let p2 = Point::new(50.0, 80.0);
+        let rect = Rect::from_points(p1, p2);
+        assert_eq!(rect.x, 10.0);
+        assert_eq!(rect.y, 20.0);
+        assert_eq!(rect.width, 40.0);
+        assert_eq!(rect.height, 60.0);
+
+        // Reverse points
+        let rect2 = Rect::from_points(p2, p1);
+        assert_eq!(rect, rect2);
+
+        let overlapping = Rect {
+            x: 30.0,
+            y: 40.0,
+            width: 50.0,
+            height: 50.0,
+        };
+        assert!(rect.intersects(&overlapping));
+
+        let non_overlapping = Rect {
+            x: 100.0,
+            y: 100.0,
+            width: 10.0,
+            height: 10.0,
+        };
+        assert!(!rect.intersects(&non_overlapping));
+    }
+
+    #[test]
+    fn test_item_rect_calculation() {
+        let columns = 3;
+        let r0 = item_rect(0, columns, 0.0);
+        assert_eq!(r0.x, PADDING);
+        assert_eq!(r0.y, PADDING);
+        assert_eq!(r0.width, ITEM_WIDTH);
+        assert_eq!(r0.height, ITEM_HEIGHT);
+
+        let r1 = item_rect(1, columns, 0.0);
+        assert_eq!(r1.x, PADDING + ITEM_WIDTH + SPACING);
+        assert_eq!(r1.y, PADDING);
+
+        let r3 = item_rect(3, columns, 10.0);
+        assert_eq!(r3.x, PADDING);
+        assert_eq!(r3.y, PADDING + ITEM_HEIGHT + SPACING - 10.0);
+    }
 }
 
 pub fn view(
     items: &[DirectoryItem],
-    selected_item: Option<&PathBuf>,
+    selected_items: &HashSet<PathBuf>,
     window_width: f32,
+    drag_rect: Option<Rect>,
 ) -> Element<'static, GridMessage> {
-    let sidebar_width = 200.0;
-    let grid_padding = 32.0;
-    let available_width = (window_width - sidebar_width - grid_padding).max(100.0);
+    let columns = get_columns(window_width);
 
-    let cell_width = 110.0;
-    let columns = ((available_width / cell_width) as usize).max(1);
-
-    let mut grid_col = column![].spacing(16);
+    let mut grid_col = column![].spacing(SPACING);
 
     for chunk in items.chunks(columns) {
-        let mut grid_row = row![].spacing(16);
+        let mut grid_row = row![].spacing(SPACING);
         for item in chunk {
-            let is_selected = selected_item == Some(&item.path);
+            let is_selected = selected_items.contains(&item.path);
             let path_clone = item.path.clone();
             let is_dir = item.is_dir;
 
@@ -223,8 +322,9 @@ pub fn view(
             };
 
             let item_btn = button(button_content)
-            .width(Length::Fixed(100.0))
-            .padding(10)
+            .width(Length::Fixed(ITEM_WIDTH))
+            .height(Length::Fixed(ITEM_HEIGHT))
+            .padding(8)
             .on_press(GridMessage::ItemClicked(path_clone.clone(), is_dir))
             .style(move |theme: &iced::Theme, status| {
                 let palette = theme.extended_palette();
@@ -274,15 +374,54 @@ pub fn view(
     let scrollable_content = scrollable(grid_col)
         .id(GRID_SCROLLABLE_ID)
         .width(Length::Fill)
-        .height(Length::Fill);
+        .height(Length::Fill)
+        .on_scroll(|vp| GridMessage::Scrolled(vp.absolute_offset().y));
 
-    mouse_area(
+    let mut main_stack = stack![
         container(scrollable_content)
             .width(Length::Fill)
             .height(Length::Fill)
-            .padding(10)
-    )
-    .on_press(GridMessage::BackgroundClicked)
-    .on_right_press(GridMessage::BackgroundRightClicked)
-    .into()
+            .padding(PADDING)
+    ];
+
+    if let Some(rect) = drag_rect {
+        if rect.width > 1.0 || rect.height > 1.0 {
+            let selection_overlay = container(column![])
+                .width(Length::Fixed(rect.width))
+                .height(Length::Fixed(rect.height))
+                .style(|theme: &iced::Theme| {
+                    let palette = theme.extended_palette();
+                    container::Style {
+                        background: Some(Color {
+                            a: 0.2,
+                            ..palette.primary.base.color
+                        }.into()),
+                        border: iced::Border {
+                            color: palette.primary.base.color,
+                            width: 1.0,
+                            radius: 2.0.into(),
+                        },
+                        ..Default::default()
+                    }
+                });
+
+            let selection_box = container(selection_overlay)
+                .width(Length::Fill)
+                .height(Length::Fill)
+                .padding(iced::Padding {
+                    top: rect.y.max(0.0),
+                    left: rect.x.max(0.0),
+                    ..Default::default()
+                });
+
+            main_stack = main_stack.push(selection_box);
+        }
+    }
+
+    mouse_area(main_stack)
+        .on_press(GridMessage::BackgroundDown)
+        .on_release(GridMessage::BackgroundUp)
+        .on_move(GridMessage::PointerMoved)
+        .on_right_press(GridMessage::BackgroundRightClicked)
+        .into()
 }
