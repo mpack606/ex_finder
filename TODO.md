@@ -10,14 +10,8 @@
     - ctrl d - new directory?
 [] Add sorting based on date, name, size, or type.
 [] List view with item details
-[] Improve selection:
-    - drag to box select
-    - CMD + click to select multiple files
-    - SHIFT + click to select everything inbetween
 
 *Medium prio:
-[] Add some interactivity - for example rezipping same file doesn't indicate any change (maybe log events)
-[] Actions should focus on folder/file after action
 [] Drag and drop
 [] Search options - look in folders
 [] Navigation bar with ability to click path to navigate there

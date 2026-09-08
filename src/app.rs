@@ -53,6 +53,7 @@ pub enum Message {
     RenameSubmitted,
     CancelRename,
     Refresh,
+    RefreshAndSelect(Vec<PathBuf>),
     NavigateBack,
     NavigateForward,
     NavigateUp,
@@ -254,6 +255,9 @@ impl App {
                             self.tabs_state.active_path().clone(),
                         ).map(|event| match event {
                             Some(context_menu::ContextMenuEvent::Refresh) => Message::Refresh,
+                            Some(context_menu::ContextMenuEvent::RefreshAndSelect(paths)) => {
+                                Message::RefreshAndSelect(paths)
+                            }
                             Some(context_menu::ContextMenuEvent::Rename(path)) => {
                                 let name = path.file_name().unwrap_or_default().to_string_lossy().into_owned();
                                 Message::RenameInputChanged(name);
@@ -286,10 +290,11 @@ impl App {
                     if !new_name.is_empty() {
                         let new_path = old_path.parent().unwrap().join(new_name);
                         return Task::perform(async move {
-                            std::fs::rename(old_path, new_path)
-                        }, |result| {
+                            let result = std::fs::rename(old_path, &new_path);
+                            (result, new_path)
+                        }, |(result, new_path)| {
                             match result {
-                                Ok(_) => Message::Refresh,
+                                Ok(_) => Message::RefreshAndSelect(vec![new_path]),
                                 Err(e) => {
                                     eprintln!("Failed to rename: {}", e);
                                     Message::Refresh
@@ -336,6 +341,15 @@ impl App {
             }
             Message::Refresh => {
                 self.grid_items = grid_view::read_directory(self.tabs_state.active_path()).unwrap_or_default();
+                return self.load_app_icons();
+            }
+            Message::RefreshAndSelect(paths) => {
+                self.grid_items = grid_view::read_directory(self.tabs_state.active_path()).unwrap_or_default();
+                let paths = paths
+                    .into_iter()
+                    .filter(|path| self.grid_items.iter().any(|item| item.path == *path))
+                    .collect();
+                self.selection.select_paths(paths);
                 return self.load_app_icons();
             }
             Message::None => {}

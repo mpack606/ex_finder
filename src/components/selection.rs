@@ -37,6 +37,12 @@ impl SelectionState {
         self.last_selected = Some(path);
     }
 
+    pub fn select_paths(&mut self, paths: Vec<PathBuf>) {
+        self.clear();
+        self.selected.extend(paths);
+        self.last_selected = self.selected.iter().next().cloned();
+    }
+
     pub fn toggle_cmd(&mut self, path: PathBuf) {
         if self.selected.contains(&path) {
             self.selected.remove(&path);

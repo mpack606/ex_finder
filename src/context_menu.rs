@@ -24,6 +24,7 @@ pub enum ContextMenuMessage {
 #[derive(Debug, Clone)]
 pub enum ContextMenuEvent {
     Refresh,
+    RefreshAndSelect(Vec<PathBuf>),
     Rename(PathBuf),
     OpenInNewTab(PathBuf),
 }
@@ -139,6 +140,7 @@ pub fn handle_action(
                 let src_paths = clipboard.clone();
                 let dest_dir = current_path;
                 Task::perform(async move {
+                    let mut dest_paths = Vec::new();
                     for src_path in src_paths {
                         if let Some(file_name) = src_path.file_name() {
                             let dest_path = dest_dir.join(file_name);
@@ -147,9 +149,11 @@ pub fn handle_action(
                             } else {
                                 let _ = std::fs::copy(&src_path, &dest_path);
                             }
+                            dest_paths.push(dest_path);
                         }
                     }
-                }, |_| Some(ContextMenuEvent::Refresh))
+                    dest_paths
+                }, |paths| Some(ContextMenuEvent::RefreshAndSelect(paths)))
             } else {
                 Task::none()
             }
@@ -166,8 +170,8 @@ pub fn handle_action(
         }
         ContextMenuAction::Zip(paths) => {
             Task::perform(async move {
-                crate::archive_utils::zip_items(&paths);
-            }, |_| Some(ContextMenuEvent::Refresh))
+                crate::archive_utils::zip_items(&paths)
+            }, |path| Some(ContextMenuEvent::RefreshAndSelect(path.into_iter().collect())))
         }
         ContextMenuAction::Unzip(path) => {
             Task::perform(async move {

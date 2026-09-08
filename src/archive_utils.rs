@@ -1,28 +1,29 @@
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
-pub fn zip_item(path: &Path) {
+pub fn zip_item(path: &Path) -> Option<PathBuf> {
     let mut dest = path.to_path_buf();
     let mut name = path.file_name().unwrap_or_default().to_os_string();
     name.push(".zip");
     dest.set_file_name(name);
     
-    let _ = Command::new("/usr/bin/ditto")
+    let status = Command::new("/usr/bin/ditto")
         .arg("-c")
         .arg("-k")
         .arg("--sequesterRsrc")
         .arg(path)
         .arg(&dest)
         .status();
+
+    status.ok().filter(|status| status.success()).map(|_| dest)
 }
 
-pub fn zip_items(paths: &[PathBuf]) {
+pub fn zip_items(paths: &[PathBuf]) -> Vec<PathBuf> {
     if paths.is_empty() {
-        return;
+        return Vec::new();
     }
     if paths.len() == 1 {
-        zip_item(&paths[0]);
-        return;
+        return zip_item(&paths[0]).into_iter().collect();
     }
 
     let parent = paths[0].parent().unwrap_or_else(|| Path::new("."));
@@ -41,7 +42,11 @@ pub fn zip_items(paths: &[PathBuf]) {
         }
     }
     cmd.current_dir(parent);
-    let _ = cmd.status();
+    cmd.status()
+        .ok()
+        .filter(|status| status.success())
+        .map(|_| vec![dest])
+        .unwrap_or_default()
 }
 
 pub fn unzip_item(path: &Path) {
