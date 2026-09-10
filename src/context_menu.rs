@@ -1,19 +1,9 @@
-use iced::{Element, Length, Border, Point, Padding, Task};
-use iced::widget::{button, column, container, mouse_area, text};
+use crate::commands::{self, Command, CommandKind};
+use iced::{Alignment, Border, Element, Length, Padding, Point, Task};
+use iced::widget::{button, column, container, mouse_area, row, text};
 use std::path::PathBuf;
 
-#[derive(Debug, Clone)]
-pub enum ContextMenuAction {
-    OpenInNewTab(PathBuf),
-    Copy(Vec<PathBuf>),
-    Paste,
-    Rename(PathBuf),
-    MoveToTrash(Vec<PathBuf>),
-    Zip(Vec<PathBuf>),
-    Unzip(PathBuf),
-    CreateNewFolder,
-    Refresh,
-}
+pub use crate::commands::Command as ContextMenuAction;
 
 #[derive(Debug, Clone)]
 pub enum ContextMenuMessage {
@@ -51,39 +41,80 @@ pub fn view(
 
     if !state.paths.is_empty() {
         if state.paths.len() == 1 && state.target_is_dir {
-            menu_items.push(menu_item("Open in new tab".to_string(), Some(ContextMenuAction::OpenInNewTab(state.paths[0].clone())), true));
+            menu_items.push(menu_item(
+                "Open in new tab",
+                CommandKind::OpenInNewTab,
+                Some(Command::OpenInNewTab(state.paths[0].clone())),
+                true,
+            ));
         }
-        menu_items.push(menu_item("Copy".to_string(), Some(ContextMenuAction::Copy(state.paths.clone())), true));
+        menu_items.push(menu_item(
+            "Copy",
+            CommandKind::Copy,
+            Some(Command::Copy(state.paths.clone())),
+            true,
+        ));
         
         if !state.is_sidebar {
             if state.paths.len() == 1 {
-                menu_items.push(menu_item("Rename".to_string(), Some(ContextMenuAction::Rename(state.paths[0].clone())), true));
+                menu_items.push(menu_item(
+                    "Rename",
+                    CommandKind::Rename,
+                    Some(Command::Rename(state.paths[0].clone())),
+                    true,
+                ));
             }
-            menu_items.push(menu_item("Move to trash".to_string(), Some(ContextMenuAction::MoveToTrash(state.paths.clone())), true));
-            menu_items.push(menu_item("Zip".to_string(), Some(ContextMenuAction::Zip(state.paths.clone())), true));
+            menu_items.push(menu_item(
+                "Move to trash",
+                CommandKind::MoveToTrash,
+                Some(Command::MoveToTrash(state.paths.clone())),
+                true,
+            ));
+            menu_items.push(menu_item(
+                "Zip",
+                CommandKind::Zip,
+                Some(Command::Zip(state.paths.clone())),
+                true,
+            ));
             
             if state.paths.len() == 1 && !state.target_is_dir && state.paths[0].extension().map_or(false, |ext| ext == "zip") {
-                menu_items.push(menu_item("Unzip".to_string(), Some(ContextMenuAction::Unzip(state.paths[0].clone())), true));
+                menu_items.push(menu_item(
+                    "Unzip",
+                    CommandKind::Unzip,
+                    Some(Command::Unzip(state.paths[0].clone())),
+                    true,
+                ));
             }
         }
     } else {
         menu_items.push(menu_item(
-            "Create new folder".to_string(),
-            Some(ContextMenuAction::CreateNewFolder),
+            "Create new folder",
+            CommandKind::CreateNewFolder,
+            Some(Command::CreateNewFolder),
             true,
         ));
     }
 
     if is_folder {
         let action = if clipboard_has_item {
-            Some(ContextMenuAction::Paste)
+            Some(Command::Paste)
         } else {
             None
         };
-        menu_items.push(menu_item("Paste".to_string(), action, clipboard_has_item));
+        menu_items.push(menu_item(
+            "Paste",
+            CommandKind::Paste,
+            action,
+            clipboard_has_item,
+        ));
     }
 
-    menu_items.push(menu_item("Refresh".to_string(), Some(ContextMenuAction::Refresh), true));
+    menu_items.push(menu_item(
+        "Refresh",
+        CommandKind::Refresh,
+        Some(Command::Refresh),
+        true,
+    ));
 
     if menu_items.is_empty() {
         return column![].into();
@@ -91,7 +122,7 @@ pub fn view(
 
     let menu = container(
         column(menu_items)
-            .width(Length::Fixed(120.0))
+            .width(Length::Fixed(220.0))
     )
     .padding(4)
     .style(|theme: &iced::Theme| {
@@ -137,51 +168,57 @@ pub fn handle_action(
         }
         ContextMenuAction::Paste => {
             if !clipboard.is_empty() {
-                let src_paths = clipboard.clone();
-                let dest_dir = current_path;
+                let paths = clipboard.clone();
                 Task::perform(async move {
-                    let mut dest_paths = Vec::new();
-                    for src_path in src_paths {
-                        if let Some(file_name) = src_path.file_name() {
-                            let dest_path = dest_dir.join(file_name);
-                            if src_path.is_dir() {
-                                let _ = copy_dir_all(&src_path, &dest_path);
-                            } else {
-                                let _ = std::fs::copy(&src_path, &dest_path);
-                            }
-                            dest_paths.push(dest_path);
-                        }
+                    commands::copy(&paths, &current_path)
+                }, |result| match result {
+                    Ok(paths) => Some(ContextMenuEvent::RefreshAndSelect(paths)),
+                    Err(error) => {
+                        eprintln!("Failed to paste: {}", error);
+                        Some(ContextMenuEvent::Refresh)
                     }
-                    dest_paths
-                }, |paths| Some(ContextMenuEvent::RefreshAndSelect(paths)))
+                })
             } else {
                 Task::none()
             }
         }
         ContextMenuAction::MoveToTrash(paths) => {
             Task::perform(async move {
-                for path in paths {
-                    let _ = trash::delete(path);
+                commands::move_to_trash(&paths)
+            }, |result| {
+                if let Err(error) = result {
+                    eprintln!("Failed to move to trash: {}", error);
                 }
-            }, |_| Some(ContextMenuEvent::Refresh))
+                Some(ContextMenuEvent::Refresh)
+            })
         }
         ContextMenuAction::Rename(path) => {
             Task::done(Some(ContextMenuEvent::Rename(path)))
         }
         ContextMenuAction::Zip(paths) => {
             Task::perform(async move {
-                crate::archive_utils::zip_items(&paths)
+                commands::zip(&paths)
             }, |path| Some(ContextMenuEvent::RefreshAndSelect(path.into_iter().collect())))
         }
         ContextMenuAction::Unzip(path) => {
             Task::perform(async move {
-                crate::archive_utils::unzip_item(&path);
-            }, |_| Some(ContextMenuEvent::Refresh))
+                commands::unzip(&path)
+            }, |result| {
+                if let Err(error) = result {
+                    eprintln!("Failed to unzip: {}", error);
+                }
+                Some(ContextMenuEvent::Refresh)
+            })
         }
         ContextMenuAction::CreateNewFolder => {
             Task::perform(async move {
-                let _ = create_new_folder(current_path);
-            }, |_| Some(ContextMenuEvent::Refresh))
+                commands::create_new_folder(&current_path)
+            }, |result| {
+                if let Err(error) = result {
+                    eprintln!("Failed to create folder: {}", error);
+                }
+                Some(ContextMenuEvent::Refresh)
+            })
         }
         ContextMenuAction::Refresh => {
             Task::done(Some(ContextMenuEvent::Refresh))
@@ -189,22 +226,9 @@ pub fn handle_action(
     }
 }
 
-fn copy_dir_all(src: impl AsRef<std::path::Path>, dst: impl AsRef<std::path::Path>) -> std::io::Result<()> {
-    std::fs::create_dir_all(&dst)?;
-    for entry in std::fs::read_dir(src)? {
-        let entry = entry?;
-        let ty = entry.file_type()?;
-        if ty.is_dir() {
-            copy_dir_all(entry.path(), dst.as_ref().join(entry.file_name()))?;
-        } else {
-            std::fs::copy(entry.path(), dst.as_ref().join(entry.file_name()))?;
-        }
-    }
-    Ok(())
-}
-
+#[cfg(test)]
 fn create_new_folder(current_path: impl AsRef<std::path::Path>) -> std::io::Result<()> {
-    std::fs::create_dir(current_path.as_ref().join("New Folder"))
+    commands::create_new_folder(current_path.as_ref()).map(|_| ())
 }
 
 #[cfg(test)]
@@ -260,17 +284,61 @@ mod tests {
     }
 }
 
-fn menu_item(label: String, action: Option<ContextMenuAction>, enabled: bool) -> Element<'static, ContextMenuMessage> {
-    let mut btn = button(
-        text(label)
-            .size(13)
-            .width(Length::Fill)
-    )
+fn menu_item(
+    label: &str,
+    command_kind: CommandKind,
+    action: Option<Command>,
+    enabled: bool,
+) -> Element<'static, ContextMenuMessage> {
+    let command_kind = action
+        .as_ref()
+        .map(Command::kind)
+        .unwrap_or(command_kind);
+    let mut content = row![text(label.to_owned()).size(13).width(Length::Fill)]
+        .spacing(12)
+        .align_y(Alignment::Center);
+
+    if let Some(shortcut) = commands::shortcut_for(command_kind) {
+        let shortcut_hint = container(
+            text(format!("[{shortcut}]"))
+                .size(12)
+                .font(iced::Font {
+                    weight: iced::font::Weight::Medium,
+                    ..Default::default()
+                })
+                .style(move |theme: &iced::Theme| {
+                    let mut color = theme.extended_palette().background.strong.text;
+                    color.a = if enabled { 0.8 } else { 0.4 };
+                    iced::widget::text::Style { color: Some(color) }
+                }),
+        )
+        .padding(Padding {
+            top: 2.0,
+            right: 6.0,
+            bottom: 2.0,
+            left: 6.0,
+        })
+        .style(|theme: &iced::Theme| {
+            let palette = theme.extended_palette();
+            container::Style {
+                background: Some(palette.background.strong.color.into()),
+                border: Border {
+                    color: palette.background.strong.color,
+                    width: 1.0,
+                    radius: 6.0.into(),
+                },
+                ..Default::default()
+            }
+        });
+        content = content.push(shortcut_hint);
+    }
+
+    let mut btn = button(content)
     .padding(8)
     .width(Length::Fill);
 
-    if let Some(act) = action {
-        btn = btn.on_press(ContextMenuMessage::Action(act));
+    if let Some(command) = action {
+        btn = btn.on_press(ContextMenuMessage::Action(command));
     }
 
     btn.style(move |theme: &iced::Theme, status| {
@@ -293,7 +361,7 @@ fn menu_item(label: String, action: Option<ContextMenuAction>, enabled: bool) ->
             },
             text_color,
             border: Border {
-                radius: 4.0.into(),
+                radius: 12.0.into(),
                 ..Default::default()
             },
             ..Default::default()

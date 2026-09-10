@@ -9,6 +9,7 @@ mod grid_view;
 mod bottom_bar;
 mod icons;
 mod context_menu;
+mod commands;
 mod updater;
 mod tabs;
 mod archive_utils;

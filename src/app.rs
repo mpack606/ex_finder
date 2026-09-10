@@ -6,6 +6,7 @@ use crate::settings;
 use crate::sidebar;
 use crate::app_icons;
 use crate::context_menu;
+use crate::commands;
 use crate::tabs;
 use crate::components::{navigation, rename_modal, selection::SelectionState};
 use iced::{Element, Task, Size, Length, Alignment, keyboard, Event};
@@ -47,6 +48,7 @@ pub enum Message {
     ModifiersChanged(iced::keyboard::Modifiers),
     GlobalMouseUp,
     ContextMenu(context_menu::ContextMenuMessage),
+    Shortcut(commands::CommandKind),
     Tabs(tabs::TabsMessage),
     RenameRequested(PathBuf),
     RenameInputChanged(String),
@@ -248,28 +250,12 @@ impl App {
                         self.context_menu = None;
                     }
                     context_menu::ContextMenuMessage::Action(action) => {
-                        self.context_menu = None;
-                        return context_menu::handle_action(
-                            action,
-                            &mut self.clipboard,
-                            self.tabs_state.active_path().clone(),
-                        ).map(|event| match event {
-                            Some(context_menu::ContextMenuEvent::Refresh) => Message::Refresh,
-                            Some(context_menu::ContextMenuEvent::RefreshAndSelect(paths)) => {
-                                Message::RefreshAndSelect(paths)
-                            }
-                            Some(context_menu::ContextMenuEvent::Rename(path)) => {
-                                let name = path.file_name().unwrap_or_default().to_string_lossy().into_owned();
-                                Message::RenameInputChanged(name);
-                                Message::RenameRequested(path)
-                            }
-                            Some(context_menu::ContextMenuEvent::OpenInNewTab(path)) => {
-                                Message::Tabs(tabs::TabsMessage::OpenTab(path))
-                            }
-                            None => Message::None,
-                        });
+                        return self.execute_command(action);
                     }
                 }
+            }
+            Message::Shortcut(command_kind) => {
+                return self.handle_shortcut(command_kind);
             }
             Message::Tabs(tabs_msg) => {
                 if let Some(tabs::TabsEvent::NavigationChanged) = self.tabs_state.update(tabs_msg) {
@@ -288,13 +274,11 @@ impl App {
             Message::RenameSubmitted => {
                 if let Some((old_path, new_name)) = self.renaming_path.take() {
                     if !new_name.is_empty() {
-                        let new_path = old_path.parent().unwrap().join(new_name);
                         return Task::perform(async move {
-                            let result = std::fs::rename(old_path, &new_path);
-                            (result, new_path)
-                        }, |(result, new_path)| {
+                            commands::rename(&old_path, &new_name)
+                        }, |result| {
                             match result {
-                                Ok(_) => Message::RefreshAndSelect(vec![new_path]),
+                                Ok(new_path) => Message::RefreshAndSelect(vec![new_path]),
                                 Err(e) => {
                                     eprintln!("Failed to rename: {}", e);
                                     Message::Refresh
@@ -410,6 +394,90 @@ impl App {
         Task::batch(tasks)
     }
 
+    fn execute_command(&mut self, command: commands::Command) -> Task<Message> {
+        self.context_menu = None;
+        context_menu::handle_action(
+            command,
+            &mut self.clipboard,
+            self.tabs_state.active_path().clone(),
+        )
+        .map(|event| match event {
+            Some(context_menu::ContextMenuEvent::Refresh) => Message::Refresh,
+            Some(context_menu::ContextMenuEvent::RefreshAndSelect(paths)) => {
+                Message::RefreshAndSelect(paths)
+            }
+            Some(context_menu::ContextMenuEvent::Rename(path)) => {
+                Message::RenameRequested(path)
+            }
+            Some(context_menu::ContextMenuEvent::OpenInNewTab(path)) => {
+                Message::Tabs(tabs::TabsMessage::OpenTab(path))
+            }
+            None => Message::None,
+        })
+    }
+
+    fn handle_shortcut(&mut self, command_kind: commands::CommandKind) -> Task<Message> {
+        if self.renaming_path.is_some() {
+            return Task::none();
+        }
+
+        match command_kind {
+            commands::CommandKind::Search => iced::widget::operation::focus(search::SEARCH_INPUT_ID),
+            commands::CommandKind::Copy => {
+                let paths: Vec<PathBuf> = self.selection.selected.iter().cloned().collect();
+                if paths.is_empty() {
+                    Task::none()
+                } else {
+                    self.execute_command(commands::Command::Copy(paths))
+                }
+            }
+            commands::CommandKind::Paste => self.execute_command(commands::Command::Paste),
+            commands::CommandKind::MoveToTrash => {
+                let paths: Vec<PathBuf> = self.selection.selected.iter().cloned().collect();
+                if paths.is_empty() {
+                    Task::none()
+                } else {
+                    self.execute_command(commands::Command::MoveToTrash(paths))
+                }
+            }
+            commands::CommandKind::Rename => {
+                let paths: Vec<PathBuf> = self.selection.selected.iter().cloned().collect();
+                if paths.len() == 1 {
+                    self.execute_command(commands::Command::Rename(paths[0].clone()))
+                } else {
+                    Task::none()
+                }
+            }
+            _ => Task::none(),
+        }
+    }
+
+    fn shortcut_key(key: &keyboard::Key) -> Option<commands::ShortcutKey> {
+        match key {
+            keyboard::Key::Character(value) => value
+                .chars()
+                .next()
+                .map(commands::ShortcutKey::Character),
+            keyboard::Key::Named(keyboard::key::Named::Enter) => {
+                Some(commands::ShortcutKey::Enter)
+            }
+            keyboard::Key::Named(keyboard::key::Named::Delete)
+            | keyboard::Key::Named(keyboard::key::Named::Backspace) => {
+                Some(commands::ShortcutKey::Delete)
+            }
+            _ => None,
+        }
+    }
+
+    fn shortcut_modifiers(modifiers: keyboard::Modifiers) -> commands::ShortcutModifiers {
+        commands::ShortcutModifiers {
+            control: modifiers.control(),
+            shift: modifiers.shift(),
+            alt: modifiers.alt(),
+            command: modifiers.command(),
+        }
+    }
+
     pub fn title(&self) -> String {
         format!("ex_finder - {}", self.tabs_state.active_path().to_string_lossy())
     }
@@ -476,7 +544,7 @@ impl App {
     pub fn subscription(&self) -> iced::Subscription<Message> {
         iced::Subscription::batch(vec![
             iced::window::resize_events().map(|(id, size)| Message::WindowResized(id, size)),
-            iced::event::listen().filter_map(|event| {
+            iced::event::listen_with(|event, status, _window| {
                 match event {
                     Event::Mouse(iced::mouse::Event::CursorMoved { position }) => {
                         Some(Message::MouseMoved(position))
@@ -487,8 +555,24 @@ impl App {
                     Event::Keyboard(keyboard::Event::ModifiersChanged(modifiers)) => {
                         Some(Message::ModifiersChanged(modifiers))
                     }
-                    Event::Keyboard(keyboard::Event::KeyPressed { modifiers, .. }) => {
-                        Some(Message::ModifiersChanged(modifiers))
+                    Event::Keyboard(keyboard::Event::KeyPressed { key, modifiers, .. }) => {
+                        if let Some(command_kind) = Self::shortcut_key(&key)
+                            .and_then(|key| commands::resolve_shortcut(
+                                key,
+                                Self::shortcut_modifiers(modifiers),
+                            ))
+                            // Text inputs capture editing keys. Do not turn Enter,
+                            // Delete, Copy, or Paste into file operations while the
+                            // user is editing text. Search remains application-wide.
+                            .filter(|command_kind| {
+                                status == iced::event::Status::Ignored
+                                    || *command_kind == commands::CommandKind::Search
+                            })
+                        {
+                            Some(Message::Shortcut(command_kind))
+                        } else {
+                            Some(Message::ModifiersChanged(modifiers))
+                        }
                     }
                     Event::Keyboard(keyboard::Event::KeyReleased { key, modifiers, .. }) => {
                         if let keyboard::Key::Named(keyboard::key::Named::Escape) = key {

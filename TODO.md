@@ -3,11 +3,8 @@
     - ctrl f - search
     - ctrl c - copy
     - ctrl v - paste
-    - ctrl x - cut
-    - delete - delete
+    - delete - move to trash
     - enter - rename
-    - ctrl n - new file
-    - ctrl d - new directory?
 [] Add sorting based on date, name, size, or type.
 [] List view with item details
 
@@ -17,9 +14,9 @@
 [] Navigation bar with ability to click path to navigate there
 [] Right click menu
     - open with...
-    - cut
-    - zip selected
-    - create new file
+    - cut ctrl x
+    - create new file ctrl n
+    - ctrl d - new directory?
 
 *Low prio:
 [] Display tabs side by side

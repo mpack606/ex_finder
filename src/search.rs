@@ -2,6 +2,8 @@ use iced::widget::{button, container, stack, svg, text_input};
 use iced::{Alignment, Border, Element, Length, Padding};
 use crate::icons;
 
+pub const SEARCH_INPUT_ID: &str = "search-input";
+
 #[derive(Debug, Clone)]
 pub enum SearchMessage {
     InputChanged(String),
@@ -10,6 +12,7 @@ pub enum SearchMessage {
 
 pub fn view(query: &str) -> Element<'_, SearchMessage> {
     let search_input = text_input("Search...", query)
+        .id(SEARCH_INPUT_ID)
         .on_input(SearchMessage::InputChanged)
         .padding(Padding {
             top: 8.0,
