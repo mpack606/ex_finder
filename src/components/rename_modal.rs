@@ -3,6 +3,25 @@ use iced::{Alignment, Border, Element, Length};
 
 use crate::app::Message;
 
+pub const RENAME_INPUT_ID: &str = "rename-input";
+
+pub fn focus_input(file_name: &str) -> iced::Task<Message> {
+    let cursor_position = stem_cursor_position(file_name);
+
+    iced::widget::operation::focus(RENAME_INPUT_ID).chain(iced::widget::operation::move_cursor_to(
+        RENAME_INPUT_ID,
+        cursor_position,
+    ))
+}
+
+fn stem_cursor_position(file_name: &str) -> usize {
+    let stem_end = file_name
+        .rfind('.')
+        .filter(|&index| index > 0)
+        .unwrap_or(file_name.len());
+    text_input::Value::new(&file_name[..stem_end]).len()
+}
+
 pub fn view<'a>(input_value: &'a str) -> Element<'a, Message> {
     let dialog = container(
         column![
@@ -13,6 +32,7 @@ pub fn view<'a>(input_value: &'a str) -> Element<'a, Message> {
                     ..Default::default()
                 }),
             text_input("New name", input_value)
+                .id(RENAME_INPUT_ID)
                 .on_input(Message::RenameInputChanged)
                 .on_submit(Message::RenameSubmitted)
                 .padding(10)
@@ -87,4 +107,22 @@ pub fn view<'a>(input_value: &'a str) -> Element<'a, Message> {
     )
     .on_press(Message::CancelRename)
     .into()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::stem_cursor_position;
+
+    #[test]
+    fn rename_cursor_is_placed_before_the_final_extension() {
+        assert_eq!(stem_cursor_position("report.txt"), 6);
+        assert_eq!(stem_cursor_position("archive.tar.gz"), 11);
+        assert_eq!(stem_cursor_position("README"), 6);
+        assert_eq!(stem_cursor_position(".gitignore"), 10);
+    }
+
+    #[test]
+    fn rename_cursor_position_counts_unicode_graphemes() {
+        assert_eq!(stem_cursor_position("re\u{301}sume\u{301}.pdf"), 6);
+    }
 }

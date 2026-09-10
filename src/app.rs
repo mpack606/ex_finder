@@ -264,7 +264,9 @@ impl App {
             }
             Message::RenameRequested(path) => {
                 let name = path.file_name().unwrap_or_default().to_string_lossy().into_owned();
+                let focus_task = rename_modal::focus_input(&name);
                 self.renaming_path = Some((path, name));
+                return focus_task;
             }
             Message::RenameInputChanged(val) => {
                 if let Some((_, input)) = &mut self.renaming_path {
