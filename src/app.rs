@@ -1,5 +1,6 @@
 use crate::address_bar;
 use crate::search;
+use crate::sorting;
 use crate::grid_view;
 use crate::bottom_bar;
 use crate::settings;
@@ -21,6 +22,7 @@ pub struct App {
     address_input: String,
     address_invalid: bool,
     search_query: String,
+    sort_order: sorting::SortOrder,
     grid_items: Vec<grid_view::DirectoryItem>,
     icon_load_generation: u64,
     pub selection: SelectionState,
@@ -52,6 +54,7 @@ pub enum Message {
     Sidebar(sidebar::SidebarMessage),
     AddressBar(address_bar::AddressBarMessage),
     Search(search::SearchMessage),
+    Sorting(sorting::SortingMessage),
     Grid(grid_view::GridMessage),
     AppIconFound(PathBuf, u64, Option<Vec<u8>>),
     WindowResized(iced::window::Id, Size),
@@ -92,6 +95,7 @@ impl App {
             address_input,
             address_invalid: false,
             search_query: String::new(),
+            sort_order: sorting::SortOrder::default(),
             grid_items,
             icon_load_generation: 0,
             selection: SelectionState::default(),
@@ -170,6 +174,10 @@ impl App {
                         self.search_query.clear();
                     }
                 }
+            }
+            Message::Sorting(sorting::SortingMessage::Selected(order)) => {
+                self.sort_order = order;
+                self.grid_scroll_y = 0.0;
             }
             Message::Grid(grid_msg) => {
                 match grid_msg {
@@ -463,7 +471,7 @@ impl App {
     }
 
     pub fn filtered_items(&self) -> Vec<grid_view::DirectoryItem> {
-        if self.search_query.is_empty() {
+        let mut items = if self.search_query.is_empty() {
             self.grid_items.clone()
         } else {
             let query = self.search_query.to_lowercase();
@@ -472,7 +480,9 @@ impl App {
                 .filter(|item| item.name.to_lowercase().contains(&query))
                 .cloned()
                 .collect()
-        }
+        };
+        sorting::sort_items(&mut items, self.sort_order);
+        items
     }
 
     fn load_app_icons(&mut self) -> Task<Message> {
@@ -607,6 +617,7 @@ impl App {
             nav_buttons,
             address_bar::view(&self.address_input, self.address_invalid).map(Message::AddressBar),
             search::view(&self.search_query).map(Message::Search),
+            sorting::view(self.sort_order).map(Message::Sorting),
         ]
         .spacing(12)
         .align_y(Alignment::Center)

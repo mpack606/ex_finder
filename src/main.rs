@@ -5,6 +5,7 @@ mod navigation;
 mod sidebar;
 mod address_bar;
 mod search;
+mod sorting;
 mod grid_view;
 mod bottom_bar;
 mod icons;

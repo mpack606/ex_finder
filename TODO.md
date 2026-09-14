@@ -1,5 +1,6 @@
 *High prio:
-[] Add sorting based on date, name, size, or type.
+[x] Add sorting based on create/edit date, name, or size.
+[] Add sorting based on type.
 [] List view with item details
 
 *Medium prio:

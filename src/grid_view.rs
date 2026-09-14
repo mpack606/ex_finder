@@ -4,6 +4,7 @@ use crate::icons;
 use std::collections::HashSet;
 use std::fs;
 use std::path::{Path, PathBuf};
+use std::time::SystemTime;
 
 #[derive(Debug, Clone)]
 pub struct DirectoryItem {
@@ -11,6 +12,9 @@ pub struct DirectoryItem {
     pub name: String,
     pub is_dir: bool,
     pub is_hidden: bool,
+    pub size: u64,
+    pub created: Option<SystemTime>,
+    pub modified: Option<SystemTime>,
     pub app_icon: Option<iced::widget::image::Handle>,
 }
 
@@ -114,23 +118,22 @@ pub fn read_directory(path: &Path) -> Result<Vec<DirectoryItem>, std::io::Error>
 
         let is_hidden = file_name.starts_with('.');
 
-        let is_dir = entry_path.is_dir();
+        let metadata = entry.metadata().ok();
+        let is_dir = metadata
+            .as_ref()
+            .map(|metadata| metadata.is_dir())
+            .unwrap_or_else(|| entry_path.is_dir());
         items.push(DirectoryItem {
             path: entry_path,
             name: file_name,
             is_dir,
             is_hidden,
+            size: metadata.as_ref().map_or(0, |metadata| metadata.len()),
+            created: metadata.as_ref().and_then(|metadata| metadata.created().ok()),
+            modified: metadata.as_ref().and_then(|metadata| metadata.modified().ok()),
             app_icon: None,
         });
     }
-
-    items.sort_by(|a, b| {
-        match (a.is_dir, b.is_dir) {
-            (true, false) => std::cmp::Ordering::Less,
-            (false, true) => std::cmp::Ordering::Greater,
-            _ => a.name.to_lowercase().cmp(&b.name.to_lowercase()),
-        }
-    });
 
     Ok(items)
 }
@@ -184,6 +187,9 @@ mod tests {
             name: String::from("example.txt"),
             is_dir: false,
             is_hidden: false,
+            size: 0,
+            created: None,
+            modified: None,
             app_icon: Some(image::Handle::from_bytes(Vec::new())),
         };
 
@@ -246,6 +252,9 @@ mod tests {
             name: String::from("folder"),
             is_dir: true,
             is_hidden: false,
+            size: 0,
+            created: None,
+            modified: None,
             app_icon: None,
         };
         let file = DirectoryItem {
@@ -253,6 +262,9 @@ mod tests {
             name: String::from("file.txt"),
             is_dir: false,
             is_hidden: false,
+            size: 0,
+            created: None,
+            modified: None,
             app_icon: None,
         };
         let items = vec![folder.clone(), file];
