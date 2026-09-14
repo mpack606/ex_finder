@@ -1,4 +1,4 @@
-use iced::widget::{button, column, row, scrollable, text, container, svg, mouse_area, stack, image};
+use iced::widget::{column, row, scrollable, text, container, svg, mouse_area, stack, image};
 use iced::{Element, Length, Color, Alignment, Font, font, Point};
 use crate::icons;
 use std::collections::HashSet;
@@ -37,6 +37,13 @@ impl Rect {
             && self.y < other.y + other.height
             && self.y + self.height > other.y
     }
+
+    pub fn contains(&self, point: Point) -> bool {
+        point.x >= self.x
+            && point.x <= self.x + self.width
+            && point.y >= self.y
+            && point.y <= self.y + self.height
+    }
 }
 
 pub const ITEM_WIDTH: f32 = 100.0;
@@ -66,7 +73,9 @@ pub fn item_rect(index: usize, columns: usize, scroll_y: f32) -> Rect {
 
 #[derive(Debug, Clone)]
 pub enum GridMessage {
+    ItemPressed(PathBuf),
     ItemClicked(PathBuf, bool),
+    ItemHovered(Option<PathBuf>),
     ItemRightClicked(PathBuf, bool),
     BackgroundDown,
     BackgroundUp,
@@ -76,6 +85,22 @@ pub enum GridMessage {
 }
 
 pub(crate) const GRID_SCROLLABLE_ID: &str = "grid-view-scrollable";
+
+pub fn directory_at_position(
+    items: &[DirectoryItem],
+    position: Point,
+    window_width: f32,
+    scroll_y: f32,
+) -> Option<PathBuf> {
+    let columns = get_columns(window_width);
+    items
+        .iter()
+        .enumerate()
+        .find(|(index, item)| {
+            item.is_dir && item_rect(*index, columns, scroll_y).contains(position)
+        })
+        .map(|(_, item)| item.path.clone())
+}
 
 pub fn read_directory(path: &Path) -> Result<Vec<DirectoryItem>, std::io::Error> {
     let mut items = Vec::new();
@@ -213,6 +238,35 @@ mod tests {
         assert_eq!(r3.x, PADDING);
         assert_eq!(r3.y, PADDING + ITEM_HEIGHT + SPACING - 10.0);
     }
+
+    #[test]
+    fn directory_at_position_only_returns_folders() {
+        let folder = DirectoryItem {
+            path: PathBuf::from("/tmp/folder"),
+            name: String::from("folder"),
+            is_dir: true,
+            is_hidden: false,
+            app_icon: None,
+        };
+        let file = DirectoryItem {
+            path: PathBuf::from("/tmp/file.txt"),
+            name: String::from("file.txt"),
+            is_dir: false,
+            is_hidden: false,
+            app_icon: None,
+        };
+        let items = vec![folder.clone(), file];
+        let width = 500.0;
+
+        assert_eq!(
+            directory_at_position(&items, Point::new(20.0, 20.0), width, 0.0),
+            Some(folder.path)
+        );
+        assert_eq!(
+            directory_at_position(&items, Point::new(130.0, 20.0), width, 0.0),
+            None
+        );
+    }
 }
 
 pub fn view(
@@ -220,6 +274,9 @@ pub fn view(
     selected_items: &HashSet<PathBuf>,
     window_width: f32,
     drag_rect: Option<Rect>,
+    drop_target: Option<&Path>,
+    hovered_item: Option<&Path>,
+    cut_items: &[PathBuf],
 ) -> Element<'static, GridMessage> {
     let columns = get_columns(window_width);
 
@@ -229,6 +286,10 @@ pub fn view(
         let mut grid_row = row![].spacing(SPACING);
         for item in chunk {
             let is_selected = selected_items.contains(&item.path);
+            let is_drop_target = drop_target == Some(item.path.as_path());
+            let is_hovered = hovered_item == Some(item.path.as_path());
+            let is_cut = cut_items.contains(&item.path);
+            let content_opacity = if is_cut { 0.5 } else { 1.0 };
             let path_clone = item.path.clone();
             let is_dir = item.is_dir;
 
@@ -242,13 +303,15 @@ pub fn view(
                 svg(svg::Handle::from_memory(icons::FOLDER_SVG))
                     .width(48)
                     .height(48)
+                    .opacity(content_opacity)
                     .into()
             } else if let Some(ext) = item.path.extension().and_then(|e| e.to_str()) {
                 let ext_str = ext.to_uppercase();
                 let mut icon_stack = stack![
                     svg(svg::Handle::from_memory(icons::FILE_SVG))
                         .width(48)
-                        .height(48),
+                        .height(48)
+                        .opacity(content_opacity),
                     container(
                         text(ext_str)
                             .size(10)
@@ -257,7 +320,10 @@ pub fn view(
                                 family: font::Family::Name("system-ui"),
                                 ..Default::default()
                             })
-                            .color(Color::WHITE)
+                            .color(Color {
+                                a: content_opacity,
+                                ..Color::WHITE
+                            })
                     )
                     .width(48)
                     .height(48)
@@ -272,7 +338,10 @@ pub fn view(
                 if let Some(app_icon_handle) = &item.app_icon {
                     icon_stack = icon_stack.push(
                         container(
-                            image(app_icon_handle.clone()).width(16).height(16)
+                            image(app_icon_handle.clone())
+                                .width(16)
+                                .height(16)
+                                .opacity(content_opacity)
                         )
                         .width(48)
                         .height(48)
@@ -286,6 +355,7 @@ pub fn view(
                 svg(svg::Handle::from_memory(icons::FILE_SVG))
                     .width(48)
                     .height(48)
+                    .opacity(content_opacity)
                     .into()
             };
 
@@ -294,6 +364,13 @@ pub fn view(
                 icon,
                 text(display_name)
                     .size(12)
+                    .style(move |theme: &iced::Theme| {
+                        let mut color = theme.extended_palette().background.strong.text;
+                        if is_cut {
+                            color.a *= 0.5;
+                        }
+                        iced::widget::text::Style { color: Some(color) }
+                    })
                     .width(Length::Fill)
                     .align_x(Alignment::Center)
             ]
@@ -321,22 +398,29 @@ pub fn view(
                 item_column.into()
             };
 
-            let item_btn = button(button_content)
+            let item_card = container(button_content)
             .width(Length::Fixed(ITEM_WIDTH))
             .height(Length::Fixed(ITEM_HEIGHT))
             .padding(8)
-            .on_press(GridMessage::ItemClicked(path_clone.clone(), is_dir))
-            .style(move |theme: &iced::Theme, status| {
+            .style(move |theme: &iced::Theme| {
                 let palette = theme.extended_palette();
-                let bg = if is_selected {
+                let bg = if is_drop_target {
+                    Some(palette.success.weak.color.into())
+                } else if is_selected {
                     Some(palette.primary.weak.color.into())
-                } else if status == iced::widget::button::Status::Hovered {
+                } else if is_hovered {
                     Some(palette.background.weak.color.into())
                 } else {
                     None
                 };
 
-                let border = if is_selected {
+                let border = if is_drop_target {
+                    iced::Border {
+                        color: palette.success.strong.color,
+                        width: 2.0,
+                        radius: 12.0.into(),
+                    }
+                } else if is_selected {
                     iced::Border {
                         color: palette.primary.strong.color,
                         width: 1.5,
@@ -355,15 +439,21 @@ pub fn view(
                     text_color.a = 0.5;
                 }
 
-                iced::widget::button::Style {
+                container::Style {
                     background: bg,
-                    text_color,
+                    text_color: Some(text_color),
                     border,
                     ..Default::default()
                 }
             });
 
-            let item_view = mouse_area(item_btn)
+            let hover_path = path_clone.clone();
+            let item_view = mouse_area(item_card)
+                .on_press(GridMessage::ItemPressed(path_clone.clone()))
+                .on_release(GridMessage::ItemClicked(path_clone.clone(), is_dir))
+                .on_enter(GridMessage::ItemHovered(Some(hover_path)))
+                .on_exit(GridMessage::ItemHovered(None))
+                .interaction(iced::mouse::Interaction::Pointer)
                 .on_right_press(GridMessage::ItemRightClicked(path_clone, is_dir));
 
             grid_row = grid_row.push(item_view);

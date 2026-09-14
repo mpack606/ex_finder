@@ -7,7 +7,9 @@ use std::process::Command as ProcessCommand;
 pub enum Command {
     OpenInNewTab(PathBuf),
     Copy(Vec<PathBuf>),
+    Cut(Vec<PathBuf>),
     Paste,
+    Move(Vec<PathBuf>, PathBuf),
     Rename(PathBuf),
     MoveToTrash(Vec<PathBuf>),
     Zip(Vec<PathBuf>),
@@ -20,6 +22,8 @@ pub enum Command {
 pub enum CommandKind {
     Search,
     Copy,
+    Cut,
+    Move,
     Paste,
     MoveToTrash,
     Rename,
@@ -79,6 +83,12 @@ const SHORTCUTS: &[Shortcut] = &[
         display: "Ctrl+C",
     },
     Shortcut {
+        command: CommandKind::Cut,
+        key: ShortcutKey::Character('x'),
+        modifiers: CONTROL,
+        display: "Ctrl+X",
+    },
+    Shortcut {
         command: CommandKind::Paste,
         key: ShortcutKey::Character('v'),
         modifiers: CONTROL,
@@ -103,7 +113,9 @@ impl Command {
         match self {
             Self::OpenInNewTab(_) => CommandKind::OpenInNewTab,
             Self::Copy(_) => CommandKind::Copy,
+            Self::Cut(_) => CommandKind::Cut,
             Self::Paste => CommandKind::Paste,
+            Self::Move(_, _) => CommandKind::Move,
             Self::Rename(_) => CommandKind::Rename,
             Self::MoveToTrash(_) => CommandKind::MoveToTrash,
             Self::Zip(_) => CommandKind::Zip,
@@ -170,6 +182,52 @@ pub fn copy(paths: &[PathBuf], destination: &Path) -> io::Result<Vec<PathBuf>> {
     }
 
     Ok(destination_paths)
+}
+
+pub fn move_items(paths: &[PathBuf], destination: &Path) -> io::Result<Vec<PathBuf>> {
+    if !destination.is_dir() {
+        return Err(io::Error::new(
+            io::ErrorKind::NotADirectory,
+            "move destination is not a directory",
+        ));
+    }
+
+    let moves = paths
+        .iter()
+        .filter_map(|source| {
+            source
+                .file_name()
+                .map(|file_name| (source.clone(), destination.join(file_name)))
+        })
+        .filter(|(source, target)| source != target)
+        .collect::<Vec<_>>();
+
+    for (source, target) in &moves {
+        if !source.exists() {
+            return Err(io::Error::new(
+                io::ErrorKind::NotFound,
+                format!("{} no longer exists", source.display()),
+            ));
+        }
+        if target.exists() {
+            return Err(io::Error::new(
+                io::ErrorKind::AlreadyExists,
+                format!("{} already exists", target.display()),
+            ));
+        }
+        if source.is_dir() && destination.starts_with(source) {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidInput,
+                "cannot move a folder into itself",
+            ));
+        }
+    }
+
+    for (source, target) in &moves {
+        fs::rename(source, target)?;
+    }
+
+    Ok(moves.into_iter().map(|(_, target)| target).collect())
 }
 
 fn available_copy_path(source: &Path, destination: &Path, file_name: &std::ffi::OsStr) -> PathBuf {
@@ -323,6 +381,10 @@ mod tests {
             Some(CommandKind::Copy)
         );
         assert_eq!(
+            resolve_shortcut(ShortcutKey::Character('x'), CONTROL),
+            Some(CommandKind::Cut)
+        );
+        assert_eq!(
             resolve_shortcut(ShortcutKey::Character('v'), CONTROL),
             Some(CommandKind::Paste)
         );
@@ -386,5 +448,59 @@ mod tests {
         assert_eq!(second, vec![directory.join("notes copy 2.txt")]);
         assert_eq!(fs::read_to_string(&first[0]).unwrap(), "hello");
         fs::remove_dir_all(directory).unwrap();
+    }
+
+    #[test]
+    fn move_items_moves_files_and_folders_to_destination() {
+        let root = std::env::temp_dir().join(format!(
+            "ex_finder_move_{}",
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        let destination = root.join("destination");
+        let file = root.join("notes.txt");
+        let folder = root.join("photos");
+        fs::create_dir_all(&destination).unwrap();
+        fs::create_dir(&folder).unwrap();
+        fs::write(&file, "hello").unwrap();
+
+        let moved = move_items(&[file.clone(), folder.clone()], &destination).unwrap();
+
+        assert_eq!(
+            moved,
+            vec![destination.join("notes.txt"), destination.join("photos")]
+        );
+        assert!(!file.exists());
+        assert!(!folder.exists());
+        assert_eq!(fs::read_to_string(&moved[0]).unwrap(), "hello");
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn move_items_does_not_overwrite_an_existing_item() {
+        let root = std::env::temp_dir().join(format!(
+            "ex_finder_move_conflict_{}",
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        let destination = root.join("destination");
+        let source = root.join("notes.txt");
+        fs::create_dir_all(&destination).unwrap();
+        fs::write(&source, "source").unwrap();
+        fs::write(destination.join("notes.txt"), "destination").unwrap();
+
+        let result = move_items(std::slice::from_ref(&source), &destination);
+
+        assert_eq!(result.unwrap_err().kind(), io::ErrorKind::AlreadyExists);
+        assert_eq!(fs::read_to_string(source).unwrap(), "source");
+        assert_eq!(
+            fs::read_to_string(destination.join("notes.txt")).unwrap(),
+            "destination"
+        );
+        fs::remove_dir_all(root).unwrap();
     }
 }

@@ -9,12 +9,12 @@
 [] List view with item details
 
 *Medium prio:
-[] Drag and drop
+[x] Drag files/folders into folders
 [] Search options - look in folders
 [] Navigation bar with ability to click path to navigate there
 [] Right click menu
     - open with...
-    - cut ctrl x
+    - [x] cut ctrl x
     - create new file ctrl n
     - ctrl d - new directory?
 

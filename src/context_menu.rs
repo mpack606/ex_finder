@@ -15,8 +15,35 @@ pub enum ContextMenuMessage {
 pub enum ContextMenuEvent {
     Refresh,
     RefreshAndSelect(Vec<PathBuf>),
+    CutCompleted(Vec<PathBuf>),
     Rename(PathBuf),
     OpenInNewTab(PathBuf),
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ClipboardOperation {
+    Copy,
+    Cut,
+}
+
+#[derive(Debug, Clone, Default)]
+pub struct Clipboard {
+    pub paths: Vec<PathBuf>,
+    pub operation: Option<ClipboardOperation>,
+}
+
+impl Clipboard {
+    pub fn has_items(&self) -> bool {
+        !self.paths.is_empty()
+    }
+
+    pub fn cut_paths(&self) -> &[PathBuf] {
+        if self.operation == Some(ClipboardOperation::Cut) {
+            &self.paths
+        } else {
+            &[]
+        }
+    }
 }
 
 pub struct ContextMenuState {
@@ -54,6 +81,14 @@ pub fn view(
             Some(Command::Copy(state.paths.clone())),
             true,
         ));
+        if !state.is_sidebar {
+            menu_items.push(menu_item(
+                "Cut",
+                CommandKind::Cut,
+                Some(Command::Cut(state.paths.clone())),
+                true,
+            ));
+        }
         
         if !state.is_sidebar {
             if state.paths.len() == 1 {
@@ -155,7 +190,7 @@ pub fn view(
 
 pub fn handle_action(
     action: ContextMenuAction,
-    clipboard: &mut Vec<PathBuf>,
+    clipboard: &mut Clipboard,
     current_path: PathBuf,
 ) -> Task<Option<ContextMenuEvent>> {
     match action {
@@ -163,15 +198,28 @@ pub fn handle_action(
             Task::done(Some(ContextMenuEvent::OpenInNewTab(path)))
         }
         ContextMenuAction::Copy(paths) => {
-            *clipboard = paths;
+            clipboard.paths = paths;
+            clipboard.operation = Some(ClipboardOperation::Copy);
+            Task::done(Some(ContextMenuEvent::Refresh))
+        }
+        ContextMenuAction::Cut(paths) => {
+            clipboard.paths = paths;
+            clipboard.operation = Some(ClipboardOperation::Cut);
             Task::done(Some(ContextMenuEvent::Refresh))
         }
         ContextMenuAction::Paste => {
-            if !clipboard.is_empty() {
-                let paths = clipboard.clone();
+            if clipboard.has_items() {
+                let paths = clipboard.paths.clone();
+                let operation = clipboard.operation;
                 Task::perform(async move {
-                    commands::copy(&paths, &current_path)
-                }, |result| match result {
+                    match operation {
+                        Some(ClipboardOperation::Cut) => commands::move_items(&paths, &current_path),
+                        _ => commands::copy(&paths, &current_path),
+                    }
+                }, move |result| match result {
+                    Ok(paths) if operation == Some(ClipboardOperation::Cut) => {
+                        Some(ContextMenuEvent::CutCompleted(paths))
+                    }
                     Ok(paths) => Some(ContextMenuEvent::RefreshAndSelect(paths)),
                     Err(error) => {
                         eprintln!("Failed to paste: {}", error);
@@ -181,6 +229,17 @@ pub fn handle_action(
             } else {
                 Task::none()
             }
+        }
+        ContextMenuAction::Move(paths, destination) => {
+            Task::perform(async move {
+                commands::move_items(&paths, &destination)
+            }, |result| match result {
+                Ok(_) => Some(ContextMenuEvent::Refresh),
+                Err(error) => {
+                    eprintln!("Failed to move: {}", error);
+                    Some(ContextMenuEvent::Refresh)
+                }
+            })
         }
         ContextMenuAction::MoveToTrash(paths) => {
             Task::perform(async move {
@@ -273,14 +332,30 @@ mod tests {
 
     #[test]
     fn handle_action_copy_sets_multiple_paths_in_clipboard() {
-        let mut clipboard = Vec::new();
+        let mut clipboard = Clipboard::default();
         let paths = vec![PathBuf::from("/tmp/a.txt"), PathBuf::from("/tmp/b.txt")];
         let _ = handle_action(
             ContextMenuAction::Copy(paths.clone()),
             &mut clipboard,
             PathBuf::from("/tmp"),
         );
-        assert_eq!(clipboard, paths);
+        assert_eq!(clipboard.paths, paths);
+        assert_eq!(clipboard.operation, Some(ClipboardOperation::Copy));
+    }
+
+    #[test]
+    fn handle_action_cut_marks_clipboard_for_move() {
+        let mut clipboard = Clipboard::default();
+        let paths = vec![PathBuf::from("/tmp/a.txt"), PathBuf::from("/tmp/b.txt")];
+        let _ = handle_action(
+            ContextMenuAction::Cut(paths.clone()),
+            &mut clipboard,
+            PathBuf::from("/tmp"),
+        );
+
+        assert_eq!(clipboard.paths, paths);
+        assert_eq!(clipboard.operation, Some(ClipboardOperation::Cut));
+        assert_eq!(clipboard.cut_paths(), clipboard.paths);
     }
 }
 

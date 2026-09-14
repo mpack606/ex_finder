@@ -32,8 +32,19 @@ pub struct App {
     last_click: Option<(PathBuf, Instant)>,
     cursor_position: iced::Point,
     context_menu: Option<context_menu::ContextMenuState>,
-    clipboard: Vec<PathBuf>,
+    clipboard: context_menu::Clipboard,
+    item_drag: Option<ItemDragState>,
+    hovered_grid_item: Option<PathBuf>,
+    suppress_next_item_click: bool,
     renaming_path: Option<(PathBuf, String)>,
+}
+
+#[derive(Debug, Clone)]
+struct ItemDragState {
+    paths: Vec<PathBuf>,
+    start: iced::Point,
+    is_dragging: bool,
+    drop_target: Option<PathBuf>,
 }
 
 #[derive(Debug, Clone)]
@@ -56,6 +67,7 @@ pub enum Message {
     CancelRename,
     Refresh,
     RefreshAndSelect(Vec<PathBuf>),
+    CutCompleted(Vec<PathBuf>),
     NavigateBack,
     NavigateForward,
     NavigateUp,
@@ -91,7 +103,10 @@ impl App {
             last_click: None,
             cursor_position: iced::Point::ORIGIN,
             context_menu: None,
-            clipboard: Vec::new(),
+            clipboard: context_menu::Clipboard::default(),
+            item_drag: None,
+            hovered_grid_item: None,
+            suppress_next_item_click: false,
             renaming_path: None,
         };
 
@@ -158,7 +173,36 @@ impl App {
             }
             Message::Grid(grid_msg) => {
                 match grid_msg {
+                    grid_view::GridMessage::ItemPressed(path) => {
+                        self.context_menu = None;
+                        self.selection.cancel_drag();
+                        self.suppress_next_item_click = false;
+                        let paths = if self.selection.selected.contains(&path) {
+                            self.selection.selected.iter().cloned().collect()
+                        } else {
+                            vec![path]
+                        };
+                        self.item_drag = Some(ItemDragState {
+                            paths,
+                            start: self.cursor_in_grid,
+                            is_dragging: false,
+                            drop_target: None,
+                        });
+                    }
                     grid_view::GridMessage::ItemClicked(path, is_dir) => {
+                        if self.item_drag.is_none() && !self.suppress_next_item_click {
+                            return Task::none();
+                        }
+                        if self
+                            .item_drag
+                            .as_ref()
+                            .is_some_and(|drag| drag.is_dragging)
+                            || self.suppress_next_item_click
+                        {
+                            self.suppress_next_item_click = false;
+                            return Task::none();
+                        }
+                        self.item_drag = None;
                         self.context_menu = None;
                         self.selection.cancel_drag();
                         let now = Instant::now();
@@ -190,6 +234,9 @@ impl App {
                             }
                         }
                     }
+                    grid_view::GridMessage::ItemHovered(path) => {
+                        self.hovered_grid_item = path;
+                    }
                     grid_view::GridMessage::ItemRightClicked(path, is_dir) => {
                         self.selection.cancel_drag();
                         if !self.selection.selected.contains(&path) {
@@ -205,6 +252,7 @@ impl App {
                     }
                     grid_view::GridMessage::BackgroundDown => {
                         self.context_menu = None;
+                        self.item_drag = None;
                         self.selection.begin_drag(self.cursor_in_grid);
                     }
                     grid_view::GridMessage::BackgroundUp => {
@@ -212,6 +260,39 @@ impl App {
                     }
                     grid_view::GridMessage::PointerMoved(pos) => {
                         self.cursor_in_grid = pos;
+                        if self.item_drag.is_some() {
+                            let items = self.filtered_items();
+                            let (dragging_paths, is_dragging, became_dragging) = {
+                                let drag = self.item_drag.as_mut().unwrap();
+                                let dx = (pos.x - drag.start.x).abs();
+                                let dy = (pos.y - drag.start.y).abs();
+                                let was_dragging = drag.is_dragging;
+                                if dx >= 4.0 || dy >= 4.0 {
+                                    drag.is_dragging = true;
+                                }
+                                (
+                                    drag.paths.clone(),
+                                    drag.is_dragging,
+                                    !was_dragging && drag.is_dragging,
+                                )
+                            };
+                            if became_dragging {
+                                self.selection.select_paths(dragging_paths.clone());
+                            }
+                            let target = is_dragging
+                                .then(|| grid_view::directory_at_position(
+                                    &items,
+                                    pos,
+                                    self.window_width,
+                                    self.grid_scroll_y,
+                                ))
+                                .flatten()
+                                .filter(|target| !dragging_paths.contains(target));
+                            if let Some(drag) = &mut self.item_drag {
+                                drag.drop_target = target;
+                            }
+                            return Task::none();
+                        }
                         let items = self.filtered_items();
                         self.selection.update_drag(
                             pos,
@@ -243,6 +324,20 @@ impl App {
             }
             Message::GlobalMouseUp => {
                 self.selection.finish_drag();
+                if self
+                    .item_drag
+                    .as_ref()
+                    .is_some_and(|drag| drag.is_dragging)
+                {
+                    let drag = self.item_drag.take().unwrap();
+                    self.suppress_next_item_click = true;
+                    if let Some(destination) = drag.drop_target {
+                        return self.execute_command(commands::Command::Move(
+                            drag.paths,
+                            destination,
+                        ));
+                    }
+                }
             }
             Message::ContextMenu(context_msg) => {
                 match context_msg {
@@ -338,6 +433,10 @@ impl App {
                 self.selection.select_paths(paths);
                 return self.load_app_icons();
             }
+            Message::CutCompleted(paths) => {
+                self.clipboard = context_menu::Clipboard::default();
+                return self.update(Message::RefreshAndSelect(paths));
+            }
             Message::None => {}
         }
         Task::none()
@@ -408,6 +507,9 @@ impl App {
             Some(context_menu::ContextMenuEvent::RefreshAndSelect(paths)) => {
                 Message::RefreshAndSelect(paths)
             }
+            Some(context_menu::ContextMenuEvent::CutCompleted(paths)) => {
+                Message::CutCompleted(paths)
+            }
             Some(context_menu::ContextMenuEvent::Rename(path)) => {
                 Message::RenameRequested(path)
             }
@@ -431,6 +533,20 @@ impl App {
                     Task::none()
                 } else {
                     self.execute_command(commands::Command::Copy(paths))
+                }
+            }
+            commands::CommandKind::Cut => {
+                let paths: Vec<PathBuf> = self
+                    .selection
+                    .selected
+                    .iter()
+                    .filter(|path| self.grid_items.iter().any(|item| &item.path == *path))
+                    .cloned()
+                    .collect();
+                if paths.is_empty() {
+                    Task::none()
+                } else {
+                    self.execute_command(commands::Command::Cut(paths))
                 }
             }
             commands::CommandKind::Paste => self.execute_command(commands::Command::Paste),
@@ -503,6 +619,11 @@ impl App {
             &self.selection.selected,
             self.window_width,
             self.selection.drag_rect(),
+            self.item_drag
+                .as_ref()
+                .and_then(|drag| drag.drop_target.as_deref()),
+            self.hovered_grid_item.as_deref(),
+            self.clipboard.cut_paths(),
         )
         .map(Message::Grid);
 
@@ -533,7 +654,7 @@ impl App {
 
         if let Some(context_menu) = &self.context_menu {
             root = root.push(
-                context_menu::view(context_menu, !self.clipboard.is_empty())
+                context_menu::view(context_menu, self.clipboard.has_items())
                     .map(Message::ContextMenu)
             );
         } else if let Some((_, input)) = &self.renaming_path {
@@ -564,7 +685,7 @@ impl App {
                                 Self::shortcut_modifiers(modifiers),
                             ))
                             // Text inputs capture editing keys. Do not turn Enter,
-                            // Delete, Copy, or Paste into file operations while the
+                            // Delete, Copy, Cut, or Paste into file operations while the
                             // user is editing text. Search remains application-wide.
                             .filter(|command_kind| {
                                 status == iced::event::Status::Ignored
