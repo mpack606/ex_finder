@@ -13,6 +13,7 @@ use crate::tabs;
 use crate::components::{navigation, rename_modal, selection::SelectionState};
 use iced::{Element, Task, Size, Length, Alignment, keyboard, Event};
 use iced::widget::{column, row, stack};
+use std::collections::{HashMap, HashSet};
 use std::path::{PathBuf};
 use std::time::{Duration, Instant};
 
@@ -58,7 +59,7 @@ pub enum Message {
     Search(search::SearchMessage),
     Sorting(sorting::SortingMessage),
     Grid(grid_view::GridMessage),
-    AppIconFound(PathBuf, u64, Option<Vec<u8>>),
+    AppIconsFound(Vec<PathBuf>, u64, Option<Vec<u8>>),
     WindowResized(iced::window::Id, Size),
     MouseMoved(iced::Point),
     ModifiersChanged(iced::keyboard::Modifiers),
@@ -423,13 +424,19 @@ impl App {
                     });
                 }
             }
-            Message::AppIconFound(path, generation, icon_bytes) => {
+            Message::AppIconsFound(paths, generation, icon_bytes) => {
                 if generation != self.icon_load_generation {
                     return Task::none();
                 }
 
-                if let Some(item) = self.grid_items.iter_mut().find(|item| item.path == path) {
-                    item.app_icon = icon_bytes.map(iced::widget::image::Handle::from_bytes);
+                let icon = icon_bytes.map(iced::widget::image::Handle::from_bytes);
+                let paths = paths.into_iter().collect::<HashSet<_>>();
+                for item in self
+                    .grid_items
+                    .iter_mut()
+                    .filter(|item| paths.contains(&item.path))
+                {
+                    item.app_icon = icon.clone();
                 }
             }
             Message::WindowResized(_id, size) => {
@@ -516,18 +523,20 @@ impl App {
     fn load_app_icons(&mut self) -> Task<Message> {
         self.icon_load_generation = self.icon_load_generation.wrapping_add(1);
         let generation = self.icon_load_generation;
-        let paths = self
-            .grid_items
-            .iter()
-            .filter(|item| !item.is_dir)
-            .map(|item| item.path.clone())
-            .collect::<Vec<_>>();
+        let mut paths_by_icon = HashMap::<app_icons::IconKey, Vec<PathBuf>>::new();
+        for item in self.grid_items.iter().filter(|item| !item.is_dir) {
+            paths_by_icon
+                .entry(app_icons::cache_key(&item.path))
+                .or_default()
+                .push(item.path.clone());
+        }
 
-        let tasks = paths.into_iter().map(|path| {
+        let tasks = paths_by_icon.into_values().map(|paths| {
+            let sample_path = paths[0].clone();
             Task::perform(async move {
-                let icon = app_icons::get_app_icon_for_file(&path);
-                (path, generation, icon)
-            }, |(path, generation, icon)| Message::AppIconFound(path, generation, icon))
+                let icon = app_icons::get_app_icon_for_file(&sample_path);
+                (paths, generation, icon)
+            }, |(paths, generation, icon)| Message::AppIconsFound(paths, generation, icon))
         });
 
         Task::batch(tasks)
