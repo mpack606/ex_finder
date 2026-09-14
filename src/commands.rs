@@ -6,6 +6,7 @@ use std::process::Command as ProcessCommand;
 #[derive(Debug, Clone)]
 pub enum Command {
     OpenInNewTab(PathBuf),
+    GetInfo(PathBuf),
     Copy(Vec<PathBuf>),
     Cut(Vec<PathBuf>),
     Paste,
@@ -28,6 +29,7 @@ pub enum CommandKind {
     MoveToTrash,
     Rename,
     OpenInNewTab,
+    GetInfo,
     Zip,
     Unzip,
     CreateNewFolder,
@@ -112,6 +114,7 @@ impl Command {
     pub fn kind(&self) -> CommandKind {
         match self {
             Self::OpenInNewTab(_) => CommandKind::OpenInNewTab,
+            Self::GetInfo(_) => CommandKind::GetInfo,
             Self::Copy(_) => CommandKind::Copy,
             Self::Cut(_) => CommandKind::Cut,
             Self::Paste => CommandKind::Paste,
@@ -426,6 +429,11 @@ mod tests {
             ),
             None
         );
+    }
+
+    #[test]
+    fn get_info_has_no_keyboard_shortcut() {
+        assert_eq!(shortcut_for(CommandKind::GetInfo), None);
     }
 
     #[test]

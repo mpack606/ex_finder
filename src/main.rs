@@ -10,6 +10,7 @@ mod grid_view;
 mod bottom_bar;
 mod icons;
 mod context_menu;
+mod file_info;
 mod commands;
 mod updater;
 mod tabs;

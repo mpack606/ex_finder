@@ -18,6 +18,7 @@ pub enum ContextMenuEvent {
     CutCompleted(Vec<PathBuf>),
     Rename(PathBuf),
     OpenInNewTab(PathBuf),
+    GetInfo(PathBuf),
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -151,6 +152,15 @@ pub fn view(
         true,
     ));
 
+    if state.paths.len() == 1 {
+        menu_items.push(menu_item(
+            "Get Info",
+            CommandKind::GetInfo,
+            Some(Command::GetInfo(state.paths[0].clone())),
+            true,
+        ));
+    }
+
     if menu_items.is_empty() {
         return column![].into();
     }
@@ -196,6 +206,9 @@ pub fn handle_action(
     match action {
         ContextMenuAction::OpenInNewTab(path) => {
             Task::done(Some(ContextMenuEvent::OpenInNewTab(path)))
+        }
+        ContextMenuAction::GetInfo(path) => {
+            Task::done(Some(ContextMenuEvent::GetInfo(path)))
         }
         ContextMenuAction::Copy(paths) => {
             clipboard.paths = paths;

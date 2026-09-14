@@ -7,6 +7,7 @@ use crate::settings;
 use crate::sidebar;
 use crate::app_icons;
 use crate::context_menu;
+use crate::file_info;
 use crate::commands;
 use crate::tabs;
 use crate::components::{navigation, rename_modal, selection::SelectionState};
@@ -39,6 +40,7 @@ pub struct App {
     hovered_grid_item: Option<PathBuf>,
     suppress_next_item_click: bool,
     renaming_path: Option<(PathBuf, String)>,
+    file_info: Option<file_info::State>,
 }
 
 #[derive(Debug, Clone)]
@@ -68,6 +70,9 @@ pub enum Message {
     RenameInputChanged(String),
     RenameSubmitted,
     CancelRename,
+    FileInfo(file_info::Message),
+    FileInfoRequested(PathBuf),
+    FileInfoLoaded(PathBuf, Result<file_info::Details, String>),
     Refresh,
     RefreshAndSelect(Vec<PathBuf>),
     CutCompleted(Vec<PathBuf>),
@@ -112,6 +117,7 @@ impl App {
             hovered_grid_item: None,
             suppress_next_item_click: false,
             renaming_path: None,
+            file_info: None,
         };
 
         let task = app.load_app_icons();
@@ -396,6 +402,27 @@ impl App {
             Message::CancelRename => {
                 self.renaming_path = None;
             }
+            Message::FileInfo(file_info::Message::Close) => {
+                self.file_info = None;
+            }
+            Message::FileInfoRequested(path) => {
+                self.file_info = Some(file_info::State::Loading(path.clone()));
+                return Task::perform(
+                    async move {
+                        let result = file_info::load(path.clone());
+                        (path, result)
+                    },
+                    |(path, result)| Message::FileInfoLoaded(path, result),
+                );
+            }
+            Message::FileInfoLoaded(path, result) => {
+                if matches!(&self.file_info, Some(file_info::State::Loading(loading)) if loading == &path) {
+                    self.file_info = Some(match result {
+                        Ok(details) => file_info::State::Loaded(details),
+                        Err(message) => file_info::State::Error { path, message },
+                    });
+                }
+            }
             Message::AppIconFound(path, generation, icon_bytes) => {
                 if generation != self.icon_load_generation {
                     return Task::none();
@@ -466,6 +493,7 @@ impl App {
         self.selection.clear();
         self.grid_scroll_y = 0.0;
         self.context_menu = None;
+        self.file_info = None;
         self.grid_items = grid_view::read_directory(&current).unwrap_or_default();
         self.load_app_icons()
     }
@@ -526,12 +554,15 @@ impl App {
             Some(context_menu::ContextMenuEvent::OpenInNewTab(path)) => {
                 Message::Tabs(tabs::TabsMessage::OpenTab(path))
             }
+            Some(context_menu::ContextMenuEvent::GetInfo(path)) => {
+                Message::FileInfoRequested(path)
+            }
             None => Message::None,
         })
     }
 
     fn handle_shortcut(&mut self, command_kind: commands::CommandKind) -> Task<Message> {
-        if self.renaming_path.is_some() {
+        if self.renaming_path.is_some() || self.file_info.is_some() {
             return Task::none();
         }
 
@@ -668,6 +699,8 @@ impl App {
                 context_menu::view(context_menu, self.clipboard.has_items())
                     .map(Message::ContextMenu)
             );
+        } else if let Some(file_info) = &self.file_info {
+            root = root.push(file_info::view(file_info).map(Message::FileInfo));
         } else if let Some((_, input)) = &self.renaming_path {
             root = root.push(rename_modal::view(input));
         }
