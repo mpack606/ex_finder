@@ -15,6 +15,7 @@ pub fn format_selected_content(selected_items: &[PathBuf]) -> String {
 
 pub fn view<'a, Message: 'a>(
     selected_items: &[PathBuf],
+    view_controls: Element<'a, Message>,
     search: Element<'a, Message>,
 ) -> Element<'a, Message> {
     let content = format_selected_content(selected_items);
@@ -22,6 +23,8 @@ pub fn view<'a, Message: 'a>(
     container(
         row![
             container(text(content).size(13)).width(Length::Fill),
+            view_controls,
+            iced::widget::Space::new().width(Length::Fixed(8.0)),
             search,
         ]
         .align_y(Alignment::Center),

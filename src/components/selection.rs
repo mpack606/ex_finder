@@ -4,6 +4,7 @@ use std::path::PathBuf;
 use iced::{keyboard::Modifiers, Point};
 
 use crate::grid_view::{self, DirectoryItem};
+use crate::{list_view, view_mode::ViewMode};
 
 #[derive(Debug, Clone, Default)]
 pub struct SelectionState {
@@ -100,6 +101,7 @@ impl SelectionState {
         window_width: f32,
         scroll_y: f32,
         modifiers: Modifiers,
+        view_mode: ViewMode,
     ) {
         let (start, initial_selection) = {
             let Some(drag) = &mut self.drag else {
@@ -121,12 +123,19 @@ impl SelectionState {
         };
 
         let selection_rect = grid_view::Rect::from_points(start, position);
-        let columns = grid_view::get_columns(window_width);
         let newly_selected: HashSet<PathBuf> = items
             .iter()
             .enumerate()
             .filter(|(index, _)| {
-                selection_rect.intersects(&grid_view::item_rect(*index, columns, scroll_y))
+                let item_rect = match view_mode {
+                    ViewMode::Grid => grid_view::item_rect(
+                        *index,
+                        grid_view::get_columns(window_width),
+                        scroll_y,
+                    ),
+                    ViewMode::List => list_view::item_rect(*index, window_width, scroll_y),
+                };
+                selection_rect.intersects(&item_rect)
             })
             .map(|(_, item)| item.path.clone())
             .collect();

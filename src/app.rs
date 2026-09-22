@@ -2,6 +2,8 @@ use crate::address_bar;
 use crate::search;
 use crate::sorting;
 use crate::grid_view;
+use crate::list_view;
+use crate::view_mode;
 use crate::bottom_bar;
 use crate::settings;
 use crate::sidebar;
@@ -26,6 +28,7 @@ pub struct App {
     address_editing: bool,
     search_query: String,
     sort_order: sorting::SortOrder,
+    view_mode: view_mode::ViewMode,
     grid_items: Vec<grid_view::DirectoryItem>,
     icon_load_generation: u64,
     pub selection: SelectionState,
@@ -60,6 +63,8 @@ pub enum Message {
     Search(search::SearchMessage),
     Sorting(sorting::SortingMessage),
     Grid(grid_view::GridMessage),
+    List(list_view::ListMessage),
+    ViewMode(view_mode::Message),
     AppIconsFound(Vec<PathBuf>, u64, Option<Vec<u8>>),
     WindowResized(iced::window::Id, Size),
     MouseMoved(iced::Point),
@@ -104,6 +109,7 @@ impl App {
             address_editing: false,
             search_query: String::new(),
             sort_order: sorting::SortOrder::default(),
+            view_mode: view_mode::ViewMode::default(),
             grid_items,
             icon_load_generation: 0,
             selection: SelectionState::default(),
@@ -194,6 +200,43 @@ impl App {
             Message::Sorting(sorting::SortingMessage::Selected(order)) => {
                 self.sort_order = order;
                 self.grid_scroll_y = 0.0;
+            }
+            Message::ViewMode(view_mode::Message::Selected(mode)) => {
+                self.view_mode = mode;
+                self.grid_scroll_y = 0.0;
+                self.selection.cancel_drag();
+                self.item_drag = None;
+                self.hovered_grid_item = None;
+            }
+            Message::List(list_msg) => {
+                let grid_msg = match list_msg {
+                    list_view::ListMessage::ItemPressed(path) => {
+                        grid_view::GridMessage::ItemPressed(path)
+                    }
+                    list_view::ListMessage::ItemClicked(path, is_dir) => {
+                        grid_view::GridMessage::ItemClicked(path, is_dir)
+                    }
+                    list_view::ListMessage::ItemHovered(path) => {
+                        grid_view::GridMessage::ItemHovered(path)
+                    }
+                    list_view::ListMessage::ItemRightClicked(path, is_dir) => {
+                        grid_view::GridMessage::ItemRightClicked(path, is_dir)
+                    }
+                    list_view::ListMessage::BackgroundDown => {
+                        grid_view::GridMessage::BackgroundDown
+                    }
+                    list_view::ListMessage::BackgroundUp => grid_view::GridMessage::BackgroundUp,
+                    list_view::ListMessage::PointerMoved(position) => {
+                        grid_view::GridMessage::PointerMoved(position)
+                    }
+                    list_view::ListMessage::Scrolled(offset) => {
+                        grid_view::GridMessage::Scrolled(offset)
+                    }
+                    list_view::ListMessage::BackgroundRightClicked => {
+                        grid_view::GridMessage::BackgroundRightClicked
+                    }
+                };
+                return self.update(Message::Grid(grid_msg));
             }
             Message::Grid(grid_msg) => {
                 match grid_msg {
@@ -304,12 +347,20 @@ impl App {
                                 self.selection.select_paths(dragging_paths.clone());
                             }
                             let target = is_dragging
-                                .then(|| grid_view::directory_at_position(
-                                    &items,
-                                    pos,
-                                    self.window_width,
-                                    self.grid_scroll_y,
-                                ))
+                                .then(|| match self.view_mode {
+                                    view_mode::ViewMode::Grid => grid_view::directory_at_position(
+                                        &items,
+                                        pos,
+                                        self.window_width,
+                                        self.grid_scroll_y,
+                                    ),
+                                    view_mode::ViewMode::List => list_view::directory_at_position(
+                                        &items,
+                                        pos,
+                                        self.window_width,
+                                        self.grid_scroll_y,
+                                    ),
+                                })
                                 .flatten()
                                 .filter(|target| !dragging_paths.contains(target));
                             if let Some(drag) = &mut self.item_drag {
@@ -324,6 +375,7 @@ impl App {
                             self.window_width,
                             self.grid_scroll_y,
                             self.modifiers,
+                            self.view_mode,
                         );
                     }
                     grid_view::GridMessage::Scrolled(y) => {
@@ -680,22 +732,35 @@ impl App {
 
         let filtered_items = self.filtered_items();
 
-        let grid_element = grid_view::view(
-            &filtered_items,
-            &self.selection.selected,
-            self.window_width,
-            self.selection.drag_rect(),
-            self.item_drag
-                .as_ref()
-                .and_then(|drag| drag.drop_target.as_deref()),
-            self.hovered_grid_item.as_deref(),
-            self.clipboard.cut_paths(),
-        )
-        .map(Message::Grid);
+        let items_element: Element<'_, Message> = match self.view_mode {
+            view_mode::ViewMode::Grid => grid_view::view(
+                &filtered_items,
+                &self.selection.selected,
+                self.window_width,
+                self.selection.drag_rect(),
+                self.item_drag
+                    .as_ref()
+                    .and_then(|drag| drag.drop_target.as_deref()),
+                self.hovered_grid_item.as_deref(),
+                self.clipboard.cut_paths(),
+            )
+            .map(Message::Grid),
+            view_mode::ViewMode::List => list_view::view(
+                &filtered_items,
+                &self.selection.selected,
+                self.item_drag
+                    .as_ref()
+                    .and_then(|drag| drag.drop_target.as_deref()),
+                self.hovered_grid_item.as_deref(),
+                self.clipboard.cut_paths(),
+            )
+            .map(Message::List),
+        };
 
         let selected_vec: Vec<PathBuf> = self.selection.selected.iter().cloned().collect();
         let bottom_bar = bottom_bar::view(
             &selected_vec,
+            view_mode::view(self.view_mode).map(Message::ViewMode),
             search::view(&self.search_query).map(Message::Search),
         );
 
@@ -703,7 +768,7 @@ impl App {
         if self.tabs_state.list.len() > 1 {
             main_content = main_content.push(tabs::view(&self.tabs_state).map(Message::Tabs));
         }
-        main_content = main_content.push(grid_element).push(bottom_bar);
+        main_content = main_content.push(items_element).push(bottom_bar);
 
         let body = row![
             sidebar::view(&self.sidebar_paths, self.tabs_state.active_path()).map(Message::Sidebar),

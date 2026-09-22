@@ -64,3 +64,15 @@ pub const UP_SVG: &[u8] = br##"<svg viewBox="0 0 24 24" fill="none" xmlns="http:
 pub const CLOSE_SVG: &[u8] = br##"<svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
   <path d="M18 6L6 18M6 6L18 18" stroke="#8E8E93" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
 </svg>"##;
+
+pub const GRID_VIEW_SVG: &[u8] = br##"<svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <rect x="3" y="3" width="7" height="7" rx="1" stroke="#8E8E93" stroke-width="2"/>
+  <rect x="14" y="3" width="7" height="7" rx="1" stroke="#8E8E93" stroke-width="2"/>
+  <rect x="3" y="14" width="7" height="7" rx="1" stroke="#8E8E93" stroke-width="2"/>
+  <rect x="14" y="14" width="7" height="7" rx="1" stroke="#8E8E93" stroke-width="2"/>
+</svg>"##;
+
+pub const LIST_VIEW_SVG: &[u8] = br##"<svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <path d="M9 6H21M9 12H21M9 18H21" stroke="#8E8E93" stroke-width="2" stroke-linecap="round"/>
+  <path d="M4 6H4.01M4 12H4.01M4 18H4.01" stroke="#8E8E93" stroke-width="3" stroke-linecap="round"/>
+</svg>"##;
