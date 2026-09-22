@@ -1,6 +1,6 @@
-use iced::widget::{button, column, text, container, row, svg, scrollable, mouse_area, tooltip};
-use iced::{Element, Length};
 use crate::icons;
+use iced::widget::{button, column, container, mouse_area, row, scrollable, svg, text, tooltip};
+use iced::{Element, Length};
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
@@ -19,13 +19,11 @@ pub fn view(
     recent_locations_expanded: bool,
     current_path: &Path,
 ) -> Element<'static, SidebarMessage> {
-    let title = text("Quick Access")
-        .size(16)
-        .font(iced::Font {
-            weight: iced::font::Weight::Bold,
-            family: iced::font::Family::Name("system-ui"),
-            ..Default::default()
-        });
+    let title = text("Quick Access").size(16).font(iced::Font {
+        weight: iced::font::Weight::Bold,
+        family: iced::font::Family::Name("system-ui"),
+        ..Default::default()
+    });
 
     let mut list_col = column![].spacing(10);
 
@@ -52,17 +50,16 @@ pub fn view(
         let is_current = path == current_path;
         let path_clone = path.clone();
         let btn = button(
-            row![
-                icon,
-                text(display_name).size(14)
-            ].spacing(6).align_y(iced::Alignment::Center)
+            row![icon, text(display_name).size(14)]
+                .spacing(6)
+                .align_y(iced::Alignment::Center),
         )
         .width(Length::Fill)
         .padding(8)
         .on_press(SidebarMessage::SelectPath(path_clone))
         .style(move |theme: &iced::Theme, status| {
             let palette = theme.extended_palette();
-            
+
             let bg = if is_current {
                 Some(palette.background.strong.color.into())
             } else if status == button::Status::Hovered {
@@ -104,13 +101,13 @@ pub fn view(
                 }
             });
 
-        let btn_with_right_click = mouse_area(btn)
-            .on_right_press(SidebarMessage::ItemRightClicked(path.clone()));
+        let btn_with_right_click =
+            mouse_area(btn).on_right_press(SidebarMessage::ItemRightClicked(path.clone()));
 
         list_col = list_col.push(
             row![btn_with_right_click, remove_btn]
                 .align_y(iced::Alignment::Center)
-                .spacing(5)
+                .spacing(5),
         );
     }
 
@@ -123,7 +120,9 @@ pub fn view(
                     .width(16)
                     .height(16),
                 text("Pin Current").size(12)
-            ].spacing(6).align_y(iced::Alignment::Center)
+            ]
+            .spacing(6)
+            .align_y(iced::Alignment::Center),
         )
         .width(Length::Fill)
         .padding(8)
@@ -146,24 +145,26 @@ pub fn view(
                 ..Default::default()
             }
         });
-        
+
         list_col = list_col.push(add_btn);
     }
 
-    let disclosure = if recent_locations_expanded { "▼" } else { "▶" };
+    let disclosure = if recent_locations_expanded {
+        "▼"
+    } else {
+        "▶"
+    };
     let recent_header = button(
         row![
             text(disclosure).size(11),
-            text("Recent locations")
-                .size(16)
-                .font(iced::Font {
-                    weight: iced::font::Weight::Bold,
-                    family: iced::font::Family::Name("system-ui"),
-                    ..Default::default()
-                })
+            text("Recent locations").size(16).font(iced::Font {
+                weight: iced::font::Weight::Bold,
+                family: iced::font::Family::Name("system-ui"),
+                ..Default::default()
+            })
         ]
         .spacing(6)
-        .align_y(iced::Alignment::Center)
+        .align_y(iced::Alignment::Center),
     )
     .width(Length::Fill)
     .padding(4)
@@ -202,7 +203,7 @@ pub fn view(
                     text(display_name).size(12)
                 ]
                 .spacing(6)
-                .align_y(iced::Alignment::Center)
+                .align_y(iced::Alignment::Center),
             )
             .width(Length::Fill)
             .padding(8)
@@ -255,9 +256,9 @@ pub fn view(
     let sidebar_layout = scrollable(sidebar_content).height(Length::Fill);
 
     container(sidebar_layout)
-    .width(Length::Fixed(200.0))
-    .height(Length::Fill)
-    .padding(10)
+        .width(Length::Fixed(200.0))
+        .height(Length::Fill)
+        .padding(10)
         .style(move |theme: &iced::Theme| {
             let palette = theme.extended_palette();
             container::Style {

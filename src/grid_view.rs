@@ -1,6 +1,6 @@
-use iced::widget::{column, row, scrollable, text, container, svg, mouse_area, stack, image};
-use iced::{Element, Length, Color, Alignment, Font, font, Point};
 use crate::icons;
+use iced::widget::{column, container, image, mouse_area, row, scrollable, stack, svg, text};
+use iced::{Alignment, Color, Element, Font, Length, Point, font};
 use std::collections::HashSet;
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -32,7 +32,12 @@ impl Rect {
         let y = p1.y.min(p2.y);
         let width = (p1.x - p2.x).abs();
         let height = (p1.y - p2.y).abs();
-        Self { x, y, width, height }
+        Self {
+            x,
+            y,
+            width,
+            height,
+        }
     }
 
     pub fn intersects(&self, other: &Rect) -> bool {
@@ -129,8 +134,12 @@ pub fn read_directory(path: &Path) -> Result<Vec<DirectoryItem>, std::io::Error>
             is_dir,
             is_hidden,
             size: metadata.as_ref().map_or(0, |metadata| metadata.len()),
-            created: metadata.as_ref().and_then(|metadata| metadata.created().ok()),
-            modified: metadata.as_ref().and_then(|metadata| metadata.modified().ok()),
+            created: metadata
+                .as_ref()
+                .and_then(|metadata| metadata.created().ok()),
+            modified: metadata
+                .as_ref()
+                .and_then(|metadata| metadata.modified().ok()),
             app_icon: None,
         });
     }
@@ -138,7 +147,22 @@ pub fn read_directory(path: &Path) -> Result<Vec<DirectoryItem>, std::io::Error>
     Ok(items)
 }
 
+fn display_name(name: &str) -> String {
+    const MAX_CHARACTERS: usize = 12;
+    const TRUNCATED_CHARACTERS: usize = 9;
+
+    if name.chars().count() > MAX_CHARACTERS {
+        format!(
+            "{}...",
+            name.chars().take(TRUNCATED_CHARACTERS).collect::<String>()
+        )
+    } else {
+        name.to_owned()
+    }
+}
+
 #[cfg(test)]
+#[allow(clippy::items_after_test_module)]
 mod tests {
     use super::*;
     use std::fs::File;
@@ -146,7 +170,13 @@ mod tests {
     #[test]
     fn test_read_directory_includes_hidden() {
         let mut dir_path = std::env::temp_dir();
-        dir_path.push(format!("ex_finder_test_{}", std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()));
+        dir_path.push(format!(
+            "ex_finder_test_{}",
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
         fs::create_dir_all(&dir_path).unwrap();
 
         File::create(dir_path.join("visible.txt")).unwrap();
@@ -155,13 +185,13 @@ mod tests {
         fs::create_dir(dir_path.join("visible_dir")).unwrap();
 
         let result = read_directory(&dir_path);
-        
+
         // Cleanup before asserts to ensure it happens
         let _ = fs::remove_dir_all(&dir_path);
 
         let items = result.unwrap();
         assert_eq!(items.len(), 4);
-        
+
         let hidden_file = items.iter().find(|i| i.name == ".hidden.txt").unwrap();
         assert!(hidden_file.is_hidden);
         assert!(!hidden_file.is_dir);
@@ -173,6 +203,12 @@ mod tests {
         let visible_file = items.iter().find(|i| i.name == "visible.txt").unwrap();
         assert!(!visible_file.is_hidden);
         assert!(!visible_file.is_dir);
+    }
+
+    #[test]
+    fn display_name_truncates_unicode_on_character_boundaries() {
+        assert_eq!(display_name("ééééééééééééé"), "ééééééééé...");
+        assert_eq!(display_name("short-é"), "short-é");
     }
 
     #[test]
@@ -305,11 +341,7 @@ pub fn view(
             let path_clone = item.path.clone();
             let is_dir = item.is_dir;
 
-            let display_name = if item.name.len() > 12 {
-                format!("{}...", &item.name[0..9])
-            } else {
-                item.name.clone()
-            };
+            let display_name = display_name(&item.name);
 
             let icon: Element<_> = if item.is_dir {
                 svg(svg::Handle::from_memory(icons::FOLDER_SVG))
@@ -353,15 +385,15 @@ pub fn view(
                             image(app_icon_handle.clone())
                                 .width(16)
                                 .height(16)
-                                .opacity(content_opacity)
+                                .opacity(content_opacity),
                         )
                         .width(48)
                         .height(48)
                         .align_x(Alignment::End)
-                        .align_y(Alignment::End)
+                        .align_y(Alignment::End),
                     );
                 }
-                
+
                 icon_stack.into()
             } else {
                 svg(svg::Handle::from_memory(icons::FILE_SVG))
@@ -398,66 +430,70 @@ pub fn view(
                         .style(|theme: &iced::Theme| {
                             let palette = theme.extended_palette();
                             container::Style {
-                                background: Some(Color {
-                                    a: 0.4,
-                                    ..palette.background.base.color
-                                }.into()),
+                                background: Some(
+                                    Color {
+                                        a: 0.4,
+                                        ..palette.background.base.color
+                                    }
+                                    .into(),
+                                ),
                                 ..Default::default()
                             }
                         })
-                ].into()
+                ]
+                .into()
             } else {
                 item_column.into()
             };
 
             let item_card = container(button_content)
-            .width(Length::Fixed(ITEM_WIDTH))
-            .height(Length::Fixed(ITEM_HEIGHT))
-            .padding(8)
-            .style(move |theme: &iced::Theme| {
-                let palette = theme.extended_palette();
-                let bg = if is_drop_target {
-                    Some(palette.success.weak.color.into())
-                } else if is_selected {
-                    Some(palette.primary.weak.color.into())
-                } else if is_hovered {
-                    Some(palette.background.weak.color.into())
-                } else {
-                    None
-                };
+                .width(Length::Fixed(ITEM_WIDTH))
+                .height(Length::Fixed(ITEM_HEIGHT))
+                .padding(8)
+                .style(move |theme: &iced::Theme| {
+                    let palette = theme.extended_palette();
+                    let bg = if is_drop_target {
+                        Some(palette.success.weak.color.into())
+                    } else if is_selected {
+                        Some(palette.primary.weak.color.into())
+                    } else if is_hovered {
+                        Some(palette.background.weak.color.into())
+                    } else {
+                        None
+                    };
 
-                let border = if is_drop_target {
-                    iced::Border {
-                        color: palette.success.strong.color,
-                        width: 2.0,
-                        radius: 12.0.into(),
-                    }
-                } else if is_selected {
-                    iced::Border {
-                        color: palette.primary.strong.color,
-                        width: 1.5,
-                        radius: 12.0.into(),
-                    }
-                } else {
-                    iced::Border {
-                        color: Color::TRANSPARENT,
-                        width: 0.0,
-                        radius: 12.0.into(),
-                    }
-                };
+                    let border = if is_drop_target {
+                        iced::Border {
+                            color: palette.success.strong.color,
+                            width: 2.0,
+                            radius: 12.0.into(),
+                        }
+                    } else if is_selected {
+                        iced::Border {
+                            color: palette.primary.strong.color,
+                            width: 1.5,
+                            radius: 12.0.into(),
+                        }
+                    } else {
+                        iced::Border {
+                            color: Color::TRANSPARENT,
+                            width: 0.0,
+                            radius: 12.0.into(),
+                        }
+                    };
 
-                let mut text_color = palette.background.strong.text;
-                if is_hidden {
-                    text_color.a = 0.5;
-                }
+                    let mut text_color = palette.background.strong.text;
+                    if is_hidden {
+                        text_color.a = 0.5;
+                    }
 
-                container::Style {
-                    background: bg,
-                    text_color: Some(text_color),
-                    border,
-                    ..Default::default()
-                }
-            });
+                    container::Style {
+                        background: bg,
+                        text_color: Some(text_color),
+                        border,
+                        ..Default::default()
+                    }
+                });
 
             let hover_path = path_clone.clone();
             let item_view = mouse_area(item_card)
@@ -486,38 +522,41 @@ pub fn view(
             .padding(PADDING)
     ];
 
-    if let Some(rect) = drag_rect {
-        if rect.width > 1.0 || rect.height > 1.0 {
-            let selection_overlay = container(column![])
-                .width(Length::Fixed(rect.width))
-                .height(Length::Fixed(rect.height))
-                .style(|theme: &iced::Theme| {
-                    let palette = theme.extended_palette();
-                    container::Style {
-                        background: Some(Color {
+    if let Some(rect) = drag_rect
+        && (rect.width > 1.0 || rect.height > 1.0)
+    {
+        let selection_overlay = container(column![])
+            .width(Length::Fixed(rect.width))
+            .height(Length::Fixed(rect.height))
+            .style(|theme: &iced::Theme| {
+                let palette = theme.extended_palette();
+                container::Style {
+                    background: Some(
+                        Color {
                             a: 0.2,
                             ..palette.primary.base.color
-                        }.into()),
-                        border: iced::Border {
-                            color: palette.primary.base.color,
-                            width: 1.0,
-                            radius: 2.0.into(),
-                        },
-                        ..Default::default()
-                    }
-                });
-
-            let selection_box = container(selection_overlay)
-                .width(Length::Fill)
-                .height(Length::Fill)
-                .padding(iced::Padding {
-                    top: rect.y.max(0.0),
-                    left: rect.x.max(0.0),
+                        }
+                        .into(),
+                    ),
+                    border: iced::Border {
+                        color: palette.primary.base.color,
+                        width: 1.0,
+                        radius: 2.0.into(),
+                    },
                     ..Default::default()
-                });
+                }
+            });
 
-            main_stack = main_stack.push(selection_box);
-        }
+        let selection_box = container(selection_overlay)
+            .width(Length::Fill)
+            .height(Length::Fill)
+            .padding(iced::Padding {
+                top: rect.y.max(0.0),
+                left: rect.x.max(0.0),
+                ..Default::default()
+            });
+
+        main_stack = main_stack.push(selection_box);
     }
 
     mouse_area(main_stack)

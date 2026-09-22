@@ -1,7 +1,7 @@
 use std::collections::HashSet;
 use std::path::PathBuf;
 
-use iced::{keyboard::Modifiers, Point};
+use iced::{Point, keyboard::Modifiers};
 
 use crate::grid_view::{self, DirectoryItem};
 use crate::{list_view, view_mode::ViewMode};
@@ -86,11 +86,11 @@ impl SelectionState {
     }
 
     pub fn finish_drag(&mut self) {
-        if let Some(drag) = self.drag.take() {
-            if !drag.is_dragging {
-                self.selected.clear();
-                self.last_selected = None;
-            }
+        if let Some(drag) = self.drag.take()
+            && !drag.is_dragging
+        {
+            self.selected.clear();
+            self.last_selected = None;
         }
     }
 
@@ -128,11 +128,9 @@ impl SelectionState {
             .enumerate()
             .filter(|(index, _)| {
                 let item_rect = match view_mode {
-                    ViewMode::Grid => grid_view::item_rect(
-                        *index,
-                        grid_view::get_columns(window_width),
-                        scroll_y,
-                    ),
+                    ViewMode::Grid => {
+                        grid_view::item_rect(*index, grid_view::get_columns(window_width), scroll_y)
+                    }
                     ViewMode::List => list_view::item_rect(*index, window_width, scroll_y),
                 };
                 selection_rect.intersects(&item_rect)
@@ -152,8 +150,9 @@ impl SelectionState {
     }
 
     pub fn drag_rect(&self) -> Option<grid_view::Rect> {
-        self.drag.as_ref().filter(|drag| drag.is_dragging).map(|drag| {
-            grid_view::Rect::from_points(drag.start, drag.current)
-        })
+        self.drag
+            .as_ref()
+            .filter(|drag| drag.is_dragging)
+            .map(|drag| grid_view::Rect::from_points(drag.start, drag.current))
     }
 }

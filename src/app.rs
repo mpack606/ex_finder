@@ -1,22 +1,22 @@
 use crate::address_bar;
-use crate::search;
-use crate::sorting;
-use crate::grid_view;
-use crate::list_view;
-use crate::view_mode;
-use crate::bottom_bar;
-use crate::settings;
-use crate::sidebar;
 use crate::app_icons;
+use crate::bottom_bar;
+use crate::commands;
+use crate::components::{navigation, rename_modal, selection::SelectionState};
 use crate::context_menu;
 use crate::file_info;
-use crate::commands;
+use crate::grid_view;
+use crate::list_view;
+use crate::search;
+use crate::settings;
+use crate::sidebar;
+use crate::sorting;
 use crate::tabs;
-use crate::components::{navigation, rename_modal, selection::SelectionState};
-use iced::{Element, Task, Size, Length, Alignment, keyboard, Event};
+use crate::view_mode;
 use iced::widget::{column, row, stack};
+use iced::{Alignment, Element, Event, Length, Size, Task, keyboard};
 use std::collections::{HashMap, HashSet};
-use std::path::{PathBuf};
+use std::path::PathBuf;
 use std::time::{Duration, Instant};
 
 pub struct App {
@@ -93,7 +93,8 @@ pub enum Message {
 impl App {
     pub fn boot() -> (Self, Task<Message>) {
         let mut settings = settings::load_settings();
-        let initial_path = settings.last_directory
+        let initial_path = settings
+            .last_directory
             .clone()
             .unwrap_or_else(|| dirs::home_dir().unwrap_or_else(|| PathBuf::from("/")));
         settings.record_recent_location(initial_path.clone());
@@ -140,70 +141,64 @@ impl App {
 
     pub fn update(&mut self, message: Message) -> Task<Message> {
         match message {
-            Message::Sidebar(sidebar_msg) => {
-                match sidebar_msg {
-                    sidebar::SidebarMessage::SelectPath(path) => {
-                        return self.navigate_to_path(path);
-                    }
-                    sidebar::SidebarMessage::AddCurrentPath(path) => {
-                        if !self.settings.quick_access_paths.contains(&path) {
-                            self.settings.quick_access_paths.push(path);
-                            self.sidebar_paths = self.settings.quick_access_paths.clone();
-                            let _ = settings::save_settings(&self.settings);
-                        }
-                    }
-                    sidebar::SidebarMessage::RemovePath(path) => {
-                        self.settings.quick_access_paths.retain(|p| p != &path);
+            Message::Sidebar(sidebar_msg) => match sidebar_msg {
+                sidebar::SidebarMessage::SelectPath(path) => {
+                    return self.navigate_to_path(path);
+                }
+                sidebar::SidebarMessage::AddCurrentPath(path) => {
+                    if !self.settings.quick_access_paths.contains(&path) {
+                        self.settings.quick_access_paths.push(path);
                         self.sidebar_paths = self.settings.quick_access_paths.clone();
                         let _ = settings::save_settings(&self.settings);
                     }
-                    sidebar::SidebarMessage::ItemRightClicked(path) => {
-                        self.selection.select_single(path.clone());
-                        self.context_menu = Some(context_menu::ContextMenuState {
-                            position: self.cursor_position,
-                            paths: vec![path],
-                            target_is_dir: true,
-                            is_sidebar: true,
-                        });
-                    }
-                    sidebar::SidebarMessage::ToggleRecentLocations => {
-                        self.recent_locations_expanded = !self.recent_locations_expanded;
-                    }
                 }
-            }
-            Message::AddressBar(address_msg) => {
-                match address_msg {
-                    address_bar::AddressBarMessage::Edit => {
-                        self.address_editing = true;
-                        return iced::widget::operation::focus(address_bar::ADDRESS_INPUT_ID);
-                    }
-                    address_bar::AddressBarMessage::InputChanged(val) => {
-                        self.address_input = val;
-                    }
-                    address_bar::AddressBarMessage::Navigate(path) => {
+                sidebar::SidebarMessage::RemovePath(path) => {
+                    self.settings.quick_access_paths.retain(|p| p != &path);
+                    self.sidebar_paths = self.settings.quick_access_paths.clone();
+                    let _ = settings::save_settings(&self.settings);
+                }
+                sidebar::SidebarMessage::ItemRightClicked(path) => {
+                    self.selection.select_single(path.clone());
+                    self.context_menu = Some(context_menu::ContextMenuState {
+                        position: self.cursor_position,
+                        paths: vec![path],
+                        target_is_dir: true,
+                        is_sidebar: true,
+                    });
+                }
+                sidebar::SidebarMessage::ToggleRecentLocations => {
+                    self.recent_locations_expanded = !self.recent_locations_expanded;
+                }
+            },
+            Message::AddressBar(address_msg) => match address_msg {
+                address_bar::AddressBarMessage::Edit => {
+                    self.address_editing = true;
+                    return iced::widget::operation::focus(address_bar::ADDRESS_INPUT_ID);
+                }
+                address_bar::AddressBarMessage::InputChanged(val) => {
+                    self.address_input = val;
+                }
+                address_bar::AddressBarMessage::Navigate(path) => {
+                    return self.navigate_to_path(path);
+                }
+                address_bar::AddressBarMessage::Submit => {
+                    let path = PathBuf::from(&self.address_input);
+                    if path.exists() && path.is_dir() {
+                        self.address_invalid = false;
                         return self.navigate_to_path(path);
-                    }
-                    address_bar::AddressBarMessage::Submit => {
-                        let path = PathBuf::from(&self.address_input);
-                        if path.exists() && path.is_dir() {
-                            self.address_invalid = false;
-                            return self.navigate_to_path(path);
-                        } else {
-                            self.address_invalid = true;
-                        }
+                    } else {
+                        self.address_invalid = true;
                     }
                 }
-            }
-            Message::Search(search_msg) => {
-                match search_msg {
-                    search::SearchMessage::InputChanged(val) => {
-                        self.search_query = val;
-                    }
-                    search::SearchMessage::Clear => {
-                        self.search_query.clear();
-                    }
+            },
+            Message::Search(search_msg) => match search_msg {
+                search::SearchMessage::InputChanged(val) => {
+                    self.search_query = val;
                 }
-            }
+                search::SearchMessage::Clear => {
+                    self.search_query.clear();
+                }
+            },
             Message::Sorting(sorting::SortingMessage::Selected(order)) => {
                 self.sort_order = order;
                 self.grid_scroll_y = 0.0;
@@ -245,160 +240,159 @@ impl App {
                 };
                 return self.update(Message::Grid(grid_msg));
             }
-            Message::Grid(grid_msg) => {
-                match grid_msg {
-                    grid_view::GridMessage::ItemPressed(path) => {
-                        self.context_menu = None;
-                        self.selection.cancel_drag();
+            Message::Grid(grid_msg) => match grid_msg {
+                grid_view::GridMessage::ItemPressed(path) => {
+                    self.context_menu = None;
+                    self.selection.cancel_drag();
+                    self.suppress_next_item_click = false;
+                    let paths = if self.selection.selected.contains(&path) {
+                        self.selection.selected.iter().cloned().collect()
+                    } else {
+                        vec![path]
+                    };
+                    self.item_drag = Some(ItemDragState {
+                        paths,
+                        start: self.cursor_in_grid,
+                        is_dragging: false,
+                        drop_target: None,
+                    });
+                }
+                grid_view::GridMessage::ItemClicked(path, is_dir) => {
+                    if self.item_drag.is_none() && !self.suppress_next_item_click {
+                        return Task::none();
+                    }
+                    if self.item_drag.as_ref().is_some_and(|drag| drag.is_dragging)
+                        || self.suppress_next_item_click
+                    {
                         self.suppress_next_item_click = false;
-                        let paths = if self.selection.selected.contains(&path) {
-                            self.selection.selected.iter().cloned().collect()
-                        } else {
-                            vec![path]
-                        };
-                        self.item_drag = Some(ItemDragState {
-                            paths,
-                            start: self.cursor_in_grid,
-                            is_dragging: false,
-                            drop_target: None,
-                        });
+                        return Task::none();
                     }
-                    grid_view::GridMessage::ItemClicked(path, is_dir) => {
-                        if self.item_drag.is_none() && !self.suppress_next_item_click {
-                            return Task::none();
-                        }
-                        if self
-                            .item_drag
-                            .as_ref()
-                            .is_some_and(|drag| drag.is_dragging)
-                            || self.suppress_next_item_click
-                        {
-                            self.suppress_next_item_click = false;
-                            return Task::none();
-                        }
-                        self.item_drag = None;
-                        self.context_menu = None;
-                        self.selection.cancel_drag();
-                        let now = Instant::now();
-                        let is_double_click = if let Some((last_path, last_time)) = &self.last_click {
-                            *last_path == path && now.duration_since(*last_time) < Duration::from_millis(300)
+                    self.item_drag = None;
+                    self.context_menu = None;
+                    self.selection.cancel_drag();
+                    let now = Instant::now();
+                    let is_double_click = if let Some((last_path, last_time)) = &self.last_click {
+                        *last_path == path
+                            && now.duration_since(*last_time) < Duration::from_millis(300)
+                    } else {
+                        false
+                    };
+
+                    self.last_click = Some((path.clone(), now));
+
+                    if is_double_click {
+                        if is_dir {
+                            return self.navigate_to_path(path);
                         } else {
-                            false
-                        };
-
-                        self.last_click = Some((path.clone(), now));
-
-                        if is_double_click {
-                            if is_dir {
-                                return self.navigate_to_path(path);
-                            } else {
-                                let path_clone = path.clone();
-                                return Task::perform(async move {
+                            let path_clone = path.clone();
+                            return Task::perform(
+                                async move {
                                     let _ = open::that(path_clone);
-                                }, |_| Message::None);
-                            }
-                        } else {
-                            if self.modifiers.command() {
-                                self.selection.toggle_cmd(path);
-                            } else if self.modifiers.shift() {
-                                let items = self.filtered_items();
-                                self.selection.select_range(path, &items);
-                            } else {
-                                self.selection.select_single(path);
-                            }
+                                },
+                                |_| Message::None,
+                            );
                         }
-                    }
-                    grid_view::GridMessage::ItemHovered(path) => {
-                        self.hovered_grid_item = path;
-                    }
-                    grid_view::GridMessage::ItemRightClicked(path, is_dir) => {
-                        self.selection.cancel_drag();
-                        if !self.selection.selected.contains(&path) {
-                            self.selection.select_single(path.clone());
-                        }
-                        let paths: Vec<PathBuf> = self.selection.selected.iter().cloned().collect();
-                        self.context_menu = Some(context_menu::ContextMenuState {
-                            position: self.cursor_position,
-                            paths,
-                            target_is_dir: is_dir,
-                            is_sidebar: false,
-                        });
-                    }
-                    grid_view::GridMessage::BackgroundDown => {
-                        self.context_menu = None;
-                        self.item_drag = None;
-                        self.selection.begin_drag(self.cursor_in_grid);
-                    }
-                    grid_view::GridMessage::BackgroundUp => {
-                        self.selection.finish_drag();
-                    }
-                    grid_view::GridMessage::PointerMoved(pos) => {
-                        self.cursor_in_grid = pos;
-                        if self.item_drag.is_some() {
+                    } else {
+                        if self.modifiers.command() {
+                            self.selection.toggle_cmd(path);
+                        } else if self.modifiers.shift() {
                             let items = self.filtered_items();
-                            let (dragging_paths, is_dragging, became_dragging) = {
-                                let drag = self.item_drag.as_mut().unwrap();
-                                let dx = (pos.x - drag.start.x).abs();
-                                let dy = (pos.y - drag.start.y).abs();
-                                let was_dragging = drag.is_dragging;
-                                if dx >= 4.0 || dy >= 4.0 {
-                                    drag.is_dragging = true;
-                                }
-                                (
-                                    drag.paths.clone(),
-                                    drag.is_dragging,
-                                    !was_dragging && drag.is_dragging,
-                                )
-                            };
-                            if became_dragging {
-                                self.selection.select_paths(dragging_paths.clone());
-                            }
-                            let target = is_dragging
-                                .then(|| match self.view_mode {
-                                    view_mode::ViewMode::Grid => grid_view::directory_at_position(
-                                        &items,
-                                        pos,
-                                        self.window_width,
-                                        self.grid_scroll_y,
-                                    ),
-                                    view_mode::ViewMode::List => list_view::directory_at_position(
-                                        &items,
-                                        pos,
-                                        self.window_width,
-                                        self.grid_scroll_y,
-                                    ),
-                                })
-                                .flatten()
-                                .filter(|target| !dragging_paths.contains(target));
-                            if let Some(drag) = &mut self.item_drag {
-                                drag.drop_target = target;
-                            }
-                            return Task::none();
+                            self.selection.select_range(path, &items);
+                        } else {
+                            self.selection.select_single(path);
                         }
-                        let items = self.filtered_items();
-                        self.selection.update_drag(
-                            pos,
-                            &items,
-                            self.window_width,
-                            self.grid_scroll_y,
-                            self.modifiers,
-                            self.view_mode,
-                        );
-                    }
-                    grid_view::GridMessage::Scrolled(y) => {
-                        self.grid_scroll_y = y;
-                    }
-                    grid_view::GridMessage::BackgroundRightClicked => {
-                        self.selection.cancel_drag();
-                        self.context_menu = Some(context_menu::ContextMenuState {
-                            position: self.cursor_position,
-                            paths: Vec::new(),
-                            target_is_dir: true,
-                            is_sidebar: false,
-                        });
                     }
                 }
-            }
+                grid_view::GridMessage::ItemHovered(path) => {
+                    self.hovered_grid_item = path;
+                }
+                grid_view::GridMessage::ItemRightClicked(path, is_dir) => {
+                    self.selection.cancel_drag();
+                    if !self.selection.selected.contains(&path) {
+                        self.selection.select_single(path.clone());
+                    }
+                    let paths: Vec<PathBuf> = self.selection.selected.iter().cloned().collect();
+                    self.context_menu = Some(context_menu::ContextMenuState {
+                        position: self.cursor_position,
+                        paths,
+                        target_is_dir: is_dir,
+                        is_sidebar: false,
+                    });
+                }
+                grid_view::GridMessage::BackgroundDown => {
+                    self.context_menu = None;
+                    self.item_drag = None;
+                    self.selection.begin_drag(self.cursor_in_grid);
+                }
+                grid_view::GridMessage::BackgroundUp => {
+                    self.selection.finish_drag();
+                }
+                grid_view::GridMessage::PointerMoved(pos) => {
+                    self.cursor_in_grid = pos;
+                    if self.item_drag.is_some() {
+                        let items = self.filtered_items();
+                        let (dragging_paths, is_dragging, became_dragging) = {
+                            let drag = self.item_drag.as_mut().unwrap();
+                            let dx = (pos.x - drag.start.x).abs();
+                            let dy = (pos.y - drag.start.y).abs();
+                            let was_dragging = drag.is_dragging;
+                            if dx >= 4.0 || dy >= 4.0 {
+                                drag.is_dragging = true;
+                            }
+                            (
+                                drag.paths.clone(),
+                                drag.is_dragging,
+                                !was_dragging && drag.is_dragging,
+                            )
+                        };
+                        if became_dragging {
+                            self.selection.select_paths(dragging_paths.clone());
+                        }
+                        let target = is_dragging
+                            .then(|| match self.view_mode {
+                                view_mode::ViewMode::Grid => grid_view::directory_at_position(
+                                    &items,
+                                    pos,
+                                    self.window_width,
+                                    self.grid_scroll_y,
+                                ),
+                                view_mode::ViewMode::List => list_view::directory_at_position(
+                                    &items,
+                                    pos,
+                                    self.window_width,
+                                    self.grid_scroll_y,
+                                ),
+                            })
+                            .flatten()
+                            .filter(|target| !dragging_paths.contains(target));
+                        if let Some(drag) = &mut self.item_drag {
+                            drag.drop_target = target;
+                        }
+                        return Task::none();
+                    }
+                    let items = self.filtered_items();
+                    self.selection.update_drag(
+                        pos,
+                        &items,
+                        self.window_width,
+                        self.grid_scroll_y,
+                        self.modifiers,
+                        self.view_mode,
+                    );
+                }
+                grid_view::GridMessage::Scrolled(y) => {
+                    self.grid_scroll_y = y;
+                }
+                grid_view::GridMessage::BackgroundRightClicked => {
+                    self.selection.cancel_drag();
+                    self.context_menu = Some(context_menu::ContextMenuState {
+                        position: self.cursor_position,
+                        paths: Vec::new(),
+                        target_is_dir: true,
+                        is_sidebar: false,
+                    });
+                }
+            },
             Message::MouseMoved(position) => {
                 self.cursor_position = position;
             }
@@ -407,31 +401,23 @@ impl App {
             }
             Message::GlobalMouseUp => {
                 self.selection.finish_drag();
-                if self
-                    .item_drag
-                    .as_ref()
-                    .is_some_and(|drag| drag.is_dragging)
-                {
+                if self.item_drag.as_ref().is_some_and(|drag| drag.is_dragging) {
                     let drag = self.item_drag.take().unwrap();
                     self.suppress_next_item_click = true;
                     if let Some(destination) = drag.drop_target {
-                        return self.execute_command(commands::Command::Move(
-                            drag.paths,
-                            destination,
-                        ));
+                        return self
+                            .execute_command(commands::Command::Move(drag.paths, destination));
                     }
                 }
             }
-            Message::ContextMenu(context_msg) => {
-                match context_msg {
-                    context_menu::ContextMenuMessage::Close => {
-                        self.context_menu = None;
-                    }
-                    context_menu::ContextMenuMessage::Action(action) => {
-                        return self.execute_command(action);
-                    }
+            Message::ContextMenu(context_msg) => match context_msg {
+                context_menu::ContextMenuMessage::Close => {
+                    self.context_menu = None;
                 }
-            }
+                context_menu::ContextMenuMessage::Action(action) => {
+                    return self.execute_command(action);
+                }
+            },
             Message::Shortcut(command_kind) => {
                 return self.handle_shortcut(command_kind);
             }
@@ -441,7 +427,11 @@ impl App {
                 }
             }
             Message::RenameRequested(path) => {
-                let name = path.file_name().unwrap_or_default().to_string_lossy().into_owned();
+                let name = path
+                    .file_name()
+                    .unwrap_or_default()
+                    .to_string_lossy()
+                    .into_owned();
                 let focus_task = rename_modal::focus_input(&name);
                 self.renaming_path = Some((path, name));
                 return focus_task;
@@ -452,20 +442,19 @@ impl App {
                 }
             }
             Message::RenameSubmitted => {
-                if let Some((old_path, new_name)) = self.renaming_path.take() {
-                    if !new_name.is_empty() {
-                        return Task::perform(async move {
-                            commands::rename(&old_path, &new_name)
-                        }, |result| {
-                            match result {
-                                Ok(new_path) => Message::RefreshAndSelect(vec![new_path]),
-                                Err(e) => {
-                                    eprintln!("Failed to rename: {}", e);
-                                    Message::Refresh
-                                }
+                if let Some((old_path, new_name)) = self.renaming_path.take()
+                    && !new_name.is_empty()
+                {
+                    return Task::perform(
+                        async move { commands::rename(&old_path, &new_name) },
+                        |result| match result {
+                            Ok(new_path) => Message::RefreshAndSelect(vec![new_path]),
+                            Err(e) => {
+                                eprintln!("Failed to rename: {}", e);
+                                Message::Refresh
                             }
-                        });
-                    }
+                        },
+                    );
                 }
             }
             Message::CancelRename => {
@@ -485,7 +474,8 @@ impl App {
                 );
             }
             Message::FileInfoLoaded(path, result) => {
-                if matches!(&self.file_info, Some(file_info::State::Loading(loading)) if loading == &path) {
+                if matches!(&self.file_info, Some(file_info::State::Loading(loading)) if loading == &path)
+                {
                     self.file_info = Some(match result {
                         Ok(details) => file_info::State::Loaded(details),
                         Err(message) => file_info::State::Error { path, message },
@@ -531,11 +521,13 @@ impl App {
                 }
             }
             Message::Refresh => {
-                self.grid_items = grid_view::read_directory(self.tabs_state.active_path()).unwrap_or_default();
+                self.grid_items =
+                    grid_view::read_directory(self.tabs_state.active_path()).unwrap_or_default();
                 return self.load_app_icons();
             }
             Message::RefreshAndSelect(paths) => {
-                self.grid_items = grid_view::read_directory(self.tabs_state.active_path()).unwrap_or_default();
+                self.grid_items =
+                    grid_view::read_directory(self.tabs_state.active_path()).unwrap_or_default();
                 let paths = paths
                     .into_iter()
                     .filter(|path| self.grid_items.iter().any(|item| item.path == *path))
@@ -601,10 +593,13 @@ impl App {
 
         let tasks = paths_by_icon.into_values().map(|paths| {
             let sample_path = paths[0].clone();
-            Task::perform(async move {
-                let icon = app_icons::get_app_icon_for_file(&sample_path);
-                (paths, generation, icon)
-            }, |(paths, generation, icon)| Message::AppIconsFound(paths, generation, icon))
+            Task::perform(
+                async move {
+                    let icon = app_icons::get_app_icon_for_file(&sample_path);
+                    (paths, generation, icon)
+                },
+                |(paths, generation, icon)| Message::AppIconsFound(paths, generation, icon),
+            )
         });
 
         Task::batch(tasks)
@@ -625,15 +620,11 @@ impl App {
             Some(context_menu::ContextMenuEvent::CutCompleted(paths)) => {
                 Message::CutCompleted(paths)
             }
-            Some(context_menu::ContextMenuEvent::Rename(path)) => {
-                Message::RenameRequested(path)
-            }
+            Some(context_menu::ContextMenuEvent::Rename(path)) => Message::RenameRequested(path),
             Some(context_menu::ContextMenuEvent::OpenInNewTab(path)) => {
-                Message::Tabs(tabs::TabsMessage::OpenTab(path))
+                Message::Tabs(tabs::TabsMessage::Open(path))
             }
-            Some(context_menu::ContextMenuEvent::GetInfo(path)) => {
-                Message::FileInfoRequested(path)
-            }
+            Some(context_menu::ContextMenuEvent::GetInfo(path)) => Message::FileInfoRequested(path),
             None => Message::None,
         })
     }
@@ -644,7 +635,9 @@ impl App {
         }
 
         match command_kind {
-            commands::CommandKind::Search => iced::widget::operation::focus(search::SEARCH_INPUT_ID),
+            commands::CommandKind::Search => {
+                iced::widget::operation::focus(search::SEARCH_INPUT_ID)
+            }
             commands::CommandKind::Copy => {
                 let paths: Vec<PathBuf> = self.selection.selected.iter().cloned().collect();
                 if paths.is_empty() {
@@ -667,7 +660,9 @@ impl App {
                     self.execute_command(commands::Command::Cut(paths))
                 }
             }
-            commands::CommandKind::Paste => self.execute_command(commands::Command::Paste),
+            commands::CommandKind::Paste => self.execute_command(commands::Command::Paste(
+                self.tabs_state.active_path().clone(),
+            )),
             commands::CommandKind::MoveToTrash => {
                 let paths: Vec<PathBuf> = self.selection.selected.iter().cloned().collect();
                 if paths.is_empty() {
@@ -690,13 +685,10 @@ impl App {
 
     fn shortcut_key(key: &keyboard::Key) -> Option<commands::ShortcutKey> {
         match key {
-            keyboard::Key::Character(value) => value
-                .chars()
-                .next()
-                .map(commands::ShortcutKey::Character),
-            keyboard::Key::Named(keyboard::key::Named::Enter) => {
-                Some(commands::ShortcutKey::Enter)
+            keyboard::Key::Character(value) => {
+                value.chars().next().map(commands::ShortcutKey::Character)
             }
+            keyboard::Key::Named(keyboard::key::Named::Enter) => Some(commands::ShortcutKey::Enter),
             keyboard::Key::Named(keyboard::key::Named::Delete)
             | keyboard::Key::Named(keyboard::key::Named::Backspace) => {
                 Some(commands::ShortcutKey::Delete)
@@ -715,7 +707,10 @@ impl App {
     }
 
     pub fn title(&self) -> String {
-        format!("ex_finder - {}", self.tabs_state.active_path().to_string_lossy())
+        format!(
+            "ex_finder - {}",
+            self.tabs_state.active_path().to_string_lossy()
+        )
     }
 
     pub fn view(&self) -> Element<'_, Message> {
@@ -789,19 +784,20 @@ impl App {
         .width(Length::Fill)
         .height(Length::Fill);
 
-        let content = column![
-            top_row,
-            body
-        ]
-        .width(Length::Fill)
-        .height(Length::Fill);
+        let content = column![top_row, body]
+            .width(Length::Fill)
+            .height(Length::Fill);
 
         let mut root = stack![content];
 
         if let Some(context_menu) = &self.context_menu {
             root = root.push(
-                context_menu::view(context_menu, self.clipboard.has_items())
-                    .map(Message::ContextMenu)
+                context_menu::view(
+                    context_menu,
+                    self.clipboard.has_items(),
+                    self.tabs_state.active_path(),
+                )
+                .map(Message::ContextMenu),
             );
         } else if let Some(file_info) = &self.file_info {
             root = root.push(file_info::view(file_info).map(Message::FileInfo));
@@ -828,10 +824,9 @@ impl App {
                     }
                     Event::Keyboard(keyboard::Event::KeyPressed { key, modifiers, .. }) => {
                         if let Some(command_kind) = Self::shortcut_key(&key)
-                            .and_then(|key| commands::resolve_shortcut(
-                                key,
-                                Self::shortcut_modifiers(modifiers),
-                            ))
+                            .and_then(|key| {
+                                commands::resolve_shortcut(key, Self::shortcut_modifiers(modifiers))
+                            })
                             // Text inputs capture editing keys. Do not turn Enter,
                             // Delete, Copy, Cut, or Paste into file operations while the
                             // user is editing text. Search remains application-wide.

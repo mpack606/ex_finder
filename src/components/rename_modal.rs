@@ -25,12 +25,10 @@ fn stem_cursor_position(file_name: &str) -> usize {
 pub fn view<'a>(input_value: &'a str) -> Element<'a, Message> {
     let dialog = container(
         column![
-            text("Rename")
-                .size(18)
-                .font(iced::Font {
-                    weight: iced::font::Weight::Bold,
-                    ..Default::default()
-                }),
+            text("Rename").size(18).font(iced::Font {
+                weight: iced::font::Weight::Bold,
+                ..Default::default()
+            }),
             text_input("New name", input_value)
                 .id(RENAME_INPUT_ID)
                 .on_input(Message::RenameInputChanged)
@@ -75,7 +73,7 @@ pub fn view<'a>(input_value: &'a str) -> Element<'a, Message> {
         ]
         .spacing(16)
         .padding(20)
-        .width(Length::Fixed(300.0))
+        .width(Length::Fixed(300.0)),
     )
     .style(|theme: &iced::Theme| {
         let palette = theme.extended_palette();
@@ -97,11 +95,13 @@ pub fn view<'a>(input_value: &'a str) -> Element<'a, Message> {
             .center_x(Length::Fill)
             .center_y(Length::Fill)
             .style(|theme: &iced::Theme| container::Style {
-                background: Some(iced::Color {
-                    a: 0.5,
-                    ..theme.extended_palette().background.base.color
-                }
-                .into()),
+                background: Some(
+                    iced::Color {
+                        a: 0.5,
+                        ..theme.extended_palette().background.base.color
+                    }
+                    .into(),
+                ),
                 ..Default::default()
             }),
     )

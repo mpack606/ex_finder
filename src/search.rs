@@ -1,6 +1,6 @@
+use crate::icons;
 use iced::widget::{button, container, stack, svg, text_input};
 use iced::{Alignment, Border, Element, Length, Padding};
-use crate::icons;
 
 pub const SEARCH_INPUT_ID: &str = "search-input";
 
@@ -43,14 +43,14 @@ pub fn view(query: &str) -> Element<'_, SearchMessage> {
         let clear_button = button(
             svg(svg::Handle::from_memory(icons::CLOSE_SVG))
                 .width(10)
-                .height(10)
+                .height(10),
         )
         .padding(4)
         .on_press(SearchMessage::Clear)
         .style(|theme: &iced::Theme, status| {
             let palette = theme.extended_palette();
             let is_hovered = status == button::Status::Hovered;
-            
+
             button::Style {
                 background: if is_hovered {
                     Some(palette.background.weak.color.into())
@@ -73,7 +73,7 @@ pub fn view(query: &str) -> Element<'_, SearchMessage> {
                 .padding(Padding {
                     right: 6.0,
                     ..Padding::ZERO
-                })
+                }),
         );
     }
 

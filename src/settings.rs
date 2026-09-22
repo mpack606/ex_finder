@@ -17,23 +17,23 @@ impl Default for Settings {
         let mut quick_access_paths = Vec::new();
         if let Some(home) = dirs::home_dir() {
             quick_access_paths.push(home.clone());
-            
+
             let desktop = home.join("Desktop");
             if desktop.exists() {
                 quick_access_paths.push(desktop);
             }
-            
+
             let documents = home.join("Documents");
             if documents.exists() {
                 quick_access_paths.push(documents);
             }
-            
+
             let downloads = home.join("Downloads");
             if downloads.exists() {
                 quick_access_paths.push(downloads);
             }
         }
-        
+
         let apps = PathBuf::from("/Applications");
         if apps.exists() {
             quick_access_paths.push(apps);
@@ -62,14 +62,12 @@ pub fn settings_path() -> Option<PathBuf> {
 }
 
 pub fn load_settings() -> Settings {
-    if let Some(path) = settings_path() {
-        if path.exists() {
-            if let Ok(content) = fs::read_to_string(&path) {
-                if let Ok(settings) = toml::from_str::<Settings>(&content) {
-                    return settings;
-                }
-            }
-        }
+    if let Some(path) = settings_path()
+        && path.exists()
+        && let Ok(content) = fs::read_to_string(&path)
+        && let Ok(settings) = toml::from_str::<Settings>(&content)
+    {
+        return settings;
     }
     // If loading fails or file does not exist, save and return defaults
     let default_settings = Settings::default();
@@ -111,8 +109,7 @@ mod tests {
         );
         assert_eq!(
             settings.recent_locations,
-            [2, 5, 4, 3, 1]
-                .map(|index| PathBuf::from(format!("/folder/{index}")))
+            [2, 5, 4, 3, 1].map(|index| PathBuf::from(format!("/folder/{index}")))
         );
     }
 

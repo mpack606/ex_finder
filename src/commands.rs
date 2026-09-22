@@ -9,7 +9,7 @@ pub enum Command {
     GetInfo(PathBuf),
     Copy(Vec<PathBuf>),
     Cut(Vec<PathBuf>),
-    Paste,
+    Paste(PathBuf),
     Move(Vec<PathBuf>, PathBuf),
     Rename(PathBuf),
     MoveToTrash(Vec<PathBuf>),
@@ -117,7 +117,7 @@ impl Command {
             Self::GetInfo(_) => CommandKind::GetInfo,
             Self::Copy(_) => CommandKind::Copy,
             Self::Cut(_) => CommandKind::Cut,
-            Self::Paste => CommandKind::Paste,
+            Self::Paste(_) => CommandKind::Paste,
             Self::Move(_, _) => CommandKind::Move,
             Self::Rename(_) => CommandKind::Rename,
             Self::MoveToTrash(_) => CommandKind::MoveToTrash,
@@ -136,10 +136,7 @@ pub fn shortcut_for(command: CommandKind) -> Option<&'static str> {
         .map(|shortcut| shortcut.display)
 }
 
-pub fn resolve_shortcut(
-    key: ShortcutKey,
-    modifiers: ShortcutModifiers,
-) -> Option<CommandKind> {
+pub fn resolve_shortcut(key: ShortcutKey, modifiers: ShortcutModifiers) -> Option<CommandKind> {
     // `iced` exposes the platform command key separately from Control on macOS.
     // Accept both so the documented Ctrl shortcuts also behave like native macOS
     // shortcuts when the Command key is used.
@@ -149,9 +146,7 @@ pub fn resolve_shortcut(
         ..modifiers
     };
     let key = match key {
-        ShortcutKey::Character(character) => {
-            ShortcutKey::Character(character.to_ascii_lowercase())
-        }
+        ShortcutKey::Character(character) => ShortcutKey::Character(character.to_ascii_lowercase()),
         key => key,
     };
 
@@ -166,12 +161,39 @@ pub fn rename(old_path: &Path, new_name: &str) -> io::Result<PathBuf> {
         .parent()
         .unwrap_or_else(|| Path::new("."))
         .join(new_name);
+
+    if new_path != old_path && new_path.exists() && !paths_refer_to_same_file(old_path, &new_path) {
+        return Err(io::Error::new(
+            io::ErrorKind::AlreadyExists,
+            format!("{} already exists", new_path.display()),
+        ));
+    }
+
     fs::rename(old_path, &new_path).map(|_| new_path)
 }
 
 pub fn copy(paths: &[PathBuf], destination: &Path) -> io::Result<Vec<PathBuf>> {
-    let mut destination_paths = Vec::new();
+    if !destination.is_dir() {
+        return Err(io::Error::new(
+            io::ErrorKind::NotADirectory,
+            "copy destination is not a directory",
+        ));
+    }
 
+    let canonical_destination = destination.canonicalize()?;
+    for source in paths {
+        if source.is_dir() {
+            let canonical_source = source.canonicalize()?;
+            if canonical_destination.starts_with(&canonical_source) {
+                return Err(io::Error::new(
+                    io::ErrorKind::InvalidInput,
+                    "cannot copy a folder into itself",
+                ));
+            }
+        }
+    }
+
+    let mut destination_paths = Vec::new();
     for source in paths {
         if let Some(file_name) = source.file_name() {
             let destination_path = available_copy_path(source, destination, file_name);
@@ -185,6 +207,24 @@ pub fn copy(paths: &[PathBuf], destination: &Path) -> io::Result<Vec<PathBuf>> {
     }
 
     Ok(destination_paths)
+}
+
+#[cfg(unix)]
+fn paths_refer_to_same_file(first: &Path, second: &Path) -> bool {
+    use std::os::unix::fs::MetadataExt;
+
+    match (fs::metadata(first), fs::metadata(second)) {
+        (Ok(first), Ok(second)) => first.dev() == second.dev() && first.ino() == second.ino(),
+        _ => false,
+    }
+}
+
+#[cfg(not(unix))]
+fn paths_refer_to_same_file(first: &Path, second: &Path) -> bool {
+    match (first.canonicalize(), second.canonicalize()) {
+        (Ok(first), Ok(second)) => first == second,
+        _ => false,
+    }
 }
 
 pub fn move_items(paths: &[PathBuf], destination: &Path) -> io::Result<Vec<PathBuf>> {
@@ -239,10 +279,7 @@ fn available_copy_path(source: &Path, destination: &Path, file_name: &std::ffi::
         return original;
     }
 
-    let stem = source
-        .file_stem()
-        .unwrap_or(file_name)
-        .to_string_lossy();
+    let stem = source.file_stem().unwrap_or(file_name).to_string_lossy();
     let extension = source
         .extension()
         .map(|extension| format!(".{}", extension.to_string_lossy()))
@@ -265,8 +302,7 @@ fn available_copy_path(source: &Path, destination: &Path, file_name: &std::ffi::
 
 pub fn move_to_trash(paths: &[PathBuf]) -> io::Result<()> {
     for path in paths {
-        trash::delete(path)
-            .map_err(|error| io::Error::other(error.to_string()))?;
+        trash::delete(path).map_err(|error| io::Error::other(error.to_string()))?;
     }
     Ok(())
 }
@@ -456,6 +492,52 @@ mod tests {
         assert_eq!(second, vec![directory.join("notes copy 2.txt")]);
         assert_eq!(fs::read_to_string(&first[0]).unwrap(), "hello");
         fs::remove_dir_all(directory).unwrap();
+    }
+
+    #[test]
+    fn copy_rejects_a_destination_inside_the_source_directory() {
+        let root = std::env::temp_dir().join(format!(
+            "ex_finder_copy_descendant_{}",
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        let source = root.join("source");
+        let destination = source.join("nested");
+        let file = root.join("notes.txt");
+        fs::create_dir_all(&destination).unwrap();
+        fs::write(&file, "notes").unwrap();
+
+        let result = copy(&[file, source], &destination);
+
+        assert_eq!(result.unwrap_err().kind(), io::ErrorKind::InvalidInput);
+        assert!(!destination.join("notes.txt").exists());
+        assert!(!destination.join("source").exists());
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn rename_does_not_overwrite_an_existing_item() {
+        let root = std::env::temp_dir().join(format!(
+            "ex_finder_rename_conflict_{}",
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        fs::create_dir(&root).unwrap();
+        let source = root.join("source.txt");
+        let existing = root.join("existing.txt");
+        fs::write(&source, "source").unwrap();
+        fs::write(&existing, "existing").unwrap();
+
+        let result = rename(&source, "existing.txt");
+
+        assert_eq!(result.unwrap_err().kind(), io::ErrorKind::AlreadyExists);
+        assert_eq!(fs::read_to_string(source).unwrap(), "source");
+        assert_eq!(fs::read_to_string(existing).unwrap(), "existing");
+        fs::remove_dir_all(root).unwrap();
     }
 
     #[test]

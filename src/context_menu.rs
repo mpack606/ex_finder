@@ -1,6 +1,6 @@
 use crate::commands::{self, Command, CommandKind};
-use iced::{Alignment, Border, Element, Length, Padding, Point, Task};
 use iced::widget::{button, column, container, mouse_area, row, text};
+use iced::{Alignment, Border, Element, Length, Padding, Point, Task};
 use std::path::PathBuf;
 
 pub use crate::commands::Command as ContextMenuAction;
@@ -57,6 +57,7 @@ pub struct ContextMenuState {
 pub fn view(
     state: &ContextMenuState,
     clipboard_has_item: bool,
+    current_path: &std::path::Path,
 ) -> Element<'static, ContextMenuMessage> {
     let mut menu_items = Vec::new();
     let is_folder = if state.paths.is_empty() {
@@ -90,7 +91,7 @@ pub fn view(
                 true,
             ));
         }
-        
+
         if !state.is_sidebar {
             if state.paths.len() == 1 {
                 menu_items.push(menu_item(
@@ -112,8 +113,11 @@ pub fn view(
                 Some(Command::Zip(state.paths.clone())),
                 true,
             ));
-            
-            if state.paths.len() == 1 && !state.target_is_dir && state.paths[0].extension().map_or(false, |ext| ext == "zip") {
+
+            if state.paths.len() == 1
+                && !state.target_is_dir
+                && state.paths[0].extension().is_some_and(|ext| ext == "zip")
+            {
                 menu_items.push(menu_item(
                     "Unzip",
                     CommandKind::Unzip,
@@ -133,7 +137,7 @@ pub fn view(
 
     if is_folder {
         let action = if clipboard_has_item {
-            Some(Command::Paste)
+            Some(Command::Paste(paste_destination(state, current_path)))
         } else {
             None
         };
@@ -165,23 +169,20 @@ pub fn view(
         return column![].into();
     }
 
-    let menu = container(
-        column(menu_items)
-            .width(Length::Fixed(220.0))
-    )
-    .padding(4)
-    .style(|theme: &iced::Theme| {
-        let palette = theme.extended_palette();
-        container::Style {
-            background: Some(palette.background.weak.color.into()),
-            border: Border {
-                color: palette.background.strong.color,
-                width: 1.0,
-                radius: 8.0.into(),
-            },
-            ..Default::default()
-        }
-    });
+    let menu = container(column(menu_items).width(Length::Fixed(220.0)))
+        .padding(4)
+        .style(|theme: &iced::Theme| {
+            let palette = theme.extended_palette();
+            container::Style {
+                background: Some(palette.background.weak.color.into()),
+                border: Border {
+                    color: palette.background.strong.color,
+                    width: 1.0,
+                    radius: 8.0.into(),
+                },
+                ..Default::default()
+            }
+        });
 
     mouse_area(
         container(menu)
@@ -191,7 +192,7 @@ pub fn view(
                 top: state.position.y,
                 left: state.position.x,
                 ..Default::default()
-            })
+            }),
     )
     .on_press(ContextMenuMessage::Close)
     .on_right_press(ContextMenuMessage::Close)
@@ -207,9 +208,7 @@ pub fn handle_action(
         ContextMenuAction::OpenInNewTab(path) => {
             Task::done(Some(ContextMenuEvent::OpenInNewTab(path)))
         }
-        ContextMenuAction::GetInfo(path) => {
-            Task::done(Some(ContextMenuEvent::GetInfo(path)))
-        }
+        ContextMenuAction::GetInfo(path) => Task::done(Some(ContextMenuEvent::GetInfo(path))),
         ContextMenuAction::Copy(paths) => {
             clipboard.paths = paths;
             clipboard.operation = Some(ClipboardOperation::Copy);
@@ -220,81 +219,86 @@ pub fn handle_action(
             clipboard.operation = Some(ClipboardOperation::Cut);
             Task::done(Some(ContextMenuEvent::Refresh))
         }
-        ContextMenuAction::Paste => {
+        ContextMenuAction::Paste(destination) => {
             if clipboard.has_items() {
                 let paths = clipboard.paths.clone();
                 let operation = clipboard.operation;
-                Task::perform(async move {
-                    match operation {
-                        Some(ClipboardOperation::Cut) => commands::move_items(&paths, &current_path),
-                        _ => commands::copy(&paths, &current_path),
-                    }
-                }, move |result| match result {
-                    Ok(paths) if operation == Some(ClipboardOperation::Cut) => {
-                        Some(ContextMenuEvent::CutCompleted(paths))
-                    }
-                    Ok(paths) => Some(ContextMenuEvent::RefreshAndSelect(paths)),
-                    Err(error) => {
-                        eprintln!("Failed to paste: {}", error);
-                        Some(ContextMenuEvent::Refresh)
-                    }
-                })
+                Task::perform(
+                    async move {
+                        match operation {
+                            Some(ClipboardOperation::Cut) => {
+                                commands::move_items(&paths, &destination)
+                            }
+                            _ => commands::copy(&paths, &destination),
+                        }
+                    },
+                    move |result| match result {
+                        Ok(paths) if operation == Some(ClipboardOperation::Cut) => {
+                            Some(ContextMenuEvent::CutCompleted(paths))
+                        }
+                        Ok(paths) => Some(ContextMenuEvent::RefreshAndSelect(paths)),
+                        Err(error) => {
+                            eprintln!("Failed to paste: {}", error);
+                            Some(ContextMenuEvent::Refresh)
+                        }
+                    },
+                )
             } else {
                 Task::none()
             }
         }
-        ContextMenuAction::Move(paths, destination) => {
-            Task::perform(async move {
-                commands::move_items(&paths, &destination)
-            }, |result| match result {
+        ContextMenuAction::Move(paths, destination) => Task::perform(
+            async move { commands::move_items(&paths, &destination) },
+            |result| match result {
                 Ok(_) => Some(ContextMenuEvent::Refresh),
                 Err(error) => {
                     eprintln!("Failed to move: {}", error);
                     Some(ContextMenuEvent::Refresh)
                 }
-            })
-        }
+            },
+        ),
         ContextMenuAction::MoveToTrash(paths) => {
-            Task::perform(async move {
-                commands::move_to_trash(&paths)
-            }, |result| {
+            Task::perform(async move { commands::move_to_trash(&paths) }, |result| {
                 if let Err(error) = result {
                     eprintln!("Failed to move to trash: {}", error);
                 }
                 Some(ContextMenuEvent::Refresh)
             })
         }
-        ContextMenuAction::Rename(path) => {
-            Task::done(Some(ContextMenuEvent::Rename(path)))
-        }
+        ContextMenuAction::Rename(path) => Task::done(Some(ContextMenuEvent::Rename(path))),
         ContextMenuAction::Zip(paths) => {
-            Task::perform(async move {
-                commands::zip(&paths)
-            }, |path| Some(ContextMenuEvent::RefreshAndSelect(path.into_iter().collect())))
+            Task::perform(async move { commands::zip(&paths) }, |path| {
+                Some(ContextMenuEvent::RefreshAndSelect(
+                    path.into_iter().collect(),
+                ))
+            })
         }
         ContextMenuAction::Unzip(path) => {
-            Task::perform(async move {
-                commands::unzip(&path)
-            }, |result| {
+            Task::perform(async move { commands::unzip(&path) }, |result| {
                 if let Err(error) = result {
                     eprintln!("Failed to unzip: {}", error);
                 }
                 Some(ContextMenuEvent::Refresh)
             })
         }
-        ContextMenuAction::CreateNewFolder => {
-            Task::perform(async move {
-                commands::create_new_folder(&current_path)
-            }, |result| {
+        ContextMenuAction::CreateNewFolder => Task::perform(
+            async move { commands::create_new_folder(&current_path) },
+            |result| {
                 if let Err(error) = result {
                     eprintln!("Failed to create folder: {}", error);
                 }
                 Some(ContextMenuEvent::Refresh)
-            })
-        }
-        ContextMenuAction::Refresh => {
-            Task::done(Some(ContextMenuEvent::Refresh))
-        }
+            },
+        ),
+        ContextMenuAction::Refresh => Task::done(Some(ContextMenuEvent::Refresh)),
+    }
+}
+
+fn paste_destination(state: &ContextMenuState, current_path: &std::path::Path) -> PathBuf {
+    if state.paths.len() == 1 && state.target_is_dir {
+        state.paths[0].clone()
+    } else {
+        current_path.to_path_buf()
     }
 }
 
@@ -304,6 +308,7 @@ fn create_new_folder(current_path: impl AsRef<std::path::Path>) -> std::io::Resu
 }
 
 #[cfg(test)]
+#[allow(clippy::items_after_test_module)]
 mod tests {
     use super::*;
     use std::fs;
@@ -370,6 +375,36 @@ mod tests {
         assert_eq!(clipboard.operation, Some(ClipboardOperation::Cut));
         assert_eq!(clipboard.cut_paths(), clipboard.paths);
     }
+
+    #[test]
+    fn paste_destination_uses_the_context_folder() {
+        let state = ContextMenuState {
+            position: Point::ORIGIN,
+            paths: vec![PathBuf::from("/tmp/target")],
+            target_is_dir: true,
+            is_sidebar: false,
+        };
+
+        assert_eq!(
+            paste_destination(&state, std::path::Path::new("/tmp/current")),
+            PathBuf::from("/tmp/target")
+        );
+    }
+
+    #[test]
+    fn paste_destination_uses_current_path_for_the_background() {
+        let state = ContextMenuState {
+            position: Point::ORIGIN,
+            paths: Vec::new(),
+            target_is_dir: true,
+            is_sidebar: false,
+        };
+
+        assert_eq!(
+            paste_destination(&state, std::path::Path::new("/tmp/current")),
+            PathBuf::from("/tmp/current")
+        );
+    }
 }
 
 fn menu_item(
@@ -378,10 +413,7 @@ fn menu_item(
     action: Option<Command>,
     enabled: bool,
 ) -> Element<'static, ContextMenuMessage> {
-    let command_kind = action
-        .as_ref()
-        .map(Command::kind)
-        .unwrap_or(command_kind);
+    let command_kind = action.as_ref().map(Command::kind).unwrap_or(command_kind);
     let mut content = row![text(label.to_owned()).size(13).width(Length::Fill)]
         .spacing(12)
         .align_y(Alignment::Center);
@@ -421,9 +453,7 @@ fn menu_item(
         content = content.push(shortcut_hint);
     }
 
-    let mut btn = button(content)
-    .padding(8)
-    .width(Length::Fill);
+    let mut btn = button(content).padding(8).width(Length::Fill);
 
     if let Some(command) = action {
         btn = btn.on_press(ContextMenuMessage::Action(command));
@@ -432,7 +462,7 @@ fn menu_item(
     btn.style(move |theme: &iced::Theme, status| {
         let palette = theme.extended_palette();
         let is_hovered = status == button::Status::Hovered;
-        
+
         let text_color = if enabled {
             palette.background.strong.text
         } else {
