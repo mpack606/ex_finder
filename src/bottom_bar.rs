@@ -1,5 +1,5 @@
-use iced::widget::{container, text};
-use iced::{Element, Length, Border};
+use iced::widget::{container, row, text};
+use iced::{Alignment, Border, Element, Length, Padding};
 use std::path::PathBuf;
 
 pub fn format_selected_content(selected_items: &[PathBuf]) -> String {
@@ -13,15 +13,26 @@ pub fn format_selected_content(selected_items: &[PathBuf]) -> String {
     }
 }
 
-pub fn view<Message: 'static>(selected_items: &[PathBuf]) -> Element<'static, Message> {
+pub fn view<'a, Message: 'a>(
+    selected_items: &[PathBuf],
+    search: Element<'a, Message>,
+) -> Element<'a, Message> {
     let content = format_selected_content(selected_items);
 
     container(
-        text(content)
-            .size(13)
+        row![
+            container(text(content).size(13)).width(Length::Fill),
+            search,
+        ]
+        .align_y(Alignment::Center),
     )
     .width(Length::Fill)
-    .padding(8)
+    .padding(Padding {
+        top: 4.0,
+        right: 8.0,
+        bottom: 4.0,
+        left: 8.0,
+    })
     .style(|theme: &iced::Theme| {
         let palette = theme.extended_palette();
         container::Style {

@@ -672,7 +672,6 @@ impl App {
                 self.address_editing,
             )
             .map(Message::AddressBar),
-            search::view(&self.search_query).map(Message::Search),
             sorting::view(self.sort_order).map(Message::Sorting),
         ]
         .spacing(12)
@@ -695,7 +694,10 @@ impl App {
         .map(Message::Grid);
 
         let selected_vec: Vec<PathBuf> = self.selection.selected.iter().cloned().collect();
-        let bottom_bar = bottom_bar::view(&selected_vec);
+        let bottom_bar = bottom_bar::view(
+            &selected_vec,
+            search::view(&self.search_query).map(Message::Search),
+        );
 
         let mut main_content = column![];
         if self.tabs_state.list.len() > 1 {

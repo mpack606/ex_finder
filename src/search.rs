@@ -15,9 +15,9 @@ pub fn view(query: &str) -> Element<'_, SearchMessage> {
         .id(SEARCH_INPUT_ID)
         .on_input(SearchMessage::InputChanged)
         .padding(Padding {
-            top: 8.0,
+            top: 4.0,
             right: if query.is_empty() { 8.0 } else { 30.0 },
-            bottom: 8.0,
+            bottom: 4.0,
             left: 8.0,
         })
         .width(Length::Fixed(200.0))
