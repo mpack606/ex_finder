@@ -8,7 +8,7 @@ repository = "https://github.com/mpack606/ex_finder"
 chrono = "0.4.45"
 dirs = "6.0.0"
 iced = { version = "0.14.0", features = ["tokio", "svg", "image"] }
-image = { version = "0.25.10", default-features = false, features = ["png", "tiff"] }
+image = { version = "0.25.10", default-features = false, features = ["png"] }
 open = "5.3.5"
 self_update = "0.44.0"
 serde = { version = "1.0.228", features = ["derive"] }
@@ -16,8 +16,9 @@ toml = "1.1.2"
 trash = "5.1.2"
 
 [target.'cfg(target_os = "macos")'.dependencies]
-objc2-app-kit = { version = "0.3.2", default-features = false, features = ["NSWorkspace", "NSImage"] }
-objc2-foundation = { version = "0.3.2", default-features = false, features = ["NSURL"] }
+objc2 = "0.6.4"
+objc2-app-kit = { version = "0.3.2", default-features = false, features = ["NSWorkspace", "NSImage", "NSBitmapImageRep", "NSImageRep", "NSGraphicsContext", "objc2-core-graphics"] }
+objc2-foundation = { version = "0.3.2", default-features = false, features = ["NSURL", "NSDictionary"] }
 
 [package.metadata.bundle]
 name = "ExFinder"

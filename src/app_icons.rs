@@ -1,5 +1,4 @@
 use std::collections::HashMap;
-use std::io::Cursor;
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 use std::sync::OnceLock;
@@ -37,8 +36,9 @@ pub fn get_app_icon_for_file(path: &Path) -> Option<Vec<u8>> {
 }
 
 fn fetch_app_icon(key: &IconKey) -> Option<Vec<u8>> {
-    use objc2_app_kit::NSWorkspace;
-    use objc2_foundation::NSString;
+    use objc2::AnyThread;
+    use objc2_app_kit::{NSBitmapImageFileType, NSBitmapImageRep, NSWorkspace};
+    use objc2_foundation::{NSDictionary, NSRect, NSSize, NSString};
 
     let workspace = NSWorkspace::sharedWorkspace();
     let image = match key {
@@ -52,44 +52,20 @@ fn fetch_app_icon(key: &IconKey) -> Option<Vec<u8>> {
             workspace.iconForFile(&path)
         }
     };
-    let tiff_data = image.TIFFRepresentation()?;
-    convert_tiff_to_png(&tiff_data.to_vec())
-}
 
-fn convert_tiff_to_png(tiff_bytes: &[u8]) -> Option<Vec<u8>> {
-    let decoded = image::load_from_memory_with_format(tiff_bytes, image::ImageFormat::Tiff).ok()?;
-    let decoded = decoded.thumbnail_exact(32, 32);
-
-    let mut png_bytes = Cursor::new(Vec::new());
-    decoded
-        .write_to(&mut png_bytes, image::ImageFormat::Png)
-        .ok()?;
-    Some(png_bytes.into_inner())
+    let mut rect = NSRect::new(Default::default(), NSSize::new(32.0, 32.0));
+    let cg_image = unsafe { image.CGImageForProposedRect_context_hints(&mut rect, None, None)? };
+    let bitmap = NSBitmapImageRep::initWithCGImage(NSBitmapImageRep::alloc(), &cg_image);
+    let data = unsafe {
+        bitmap.representationUsingType_properties(NSBitmapImageFileType::PNG, &NSDictionary::new())
+    }?;
+    Some(data.to_vec())
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use image::{DynamicImage, GenericImageView, ImageBuffer, ImageFormat, Rgba};
-
-    #[test]
-    fn convert_tiff_to_png_preserves_dimensions_and_pixels() {
-        let source =
-            DynamicImage::ImageRgba8(ImageBuffer::from_pixel(2, 1, Rgba([12, 34, 56, 255])));
-        let mut tiff_bytes = Cursor::new(Vec::new());
-        source.write_to(&mut tiff_bytes, ImageFormat::Tiff).unwrap();
-
-        let png_bytes = convert_tiff_to_png(tiff_bytes.get_ref()).unwrap();
-        let decoded = image::load_from_memory_with_format(&png_bytes, ImageFormat::Png).unwrap();
-
-        assert_eq!(decoded.dimensions(), (32, 32));
-        assert_eq!(decoded.to_rgba8().get_pixel(0, 0), &Rgba([12, 34, 56, 255]));
-    }
-
-    #[test]
-    fn convert_tiff_to_png_rejects_invalid_data() {
-        assert!(convert_tiff_to_png(b"not an image").is_none());
-    }
+    use image::{GenericImageView, ImageFormat};
 
     #[test]
     fn cache_key_reuses_icons_for_matching_extensions() {
@@ -117,6 +93,7 @@ mod tests {
         let decoded = image::load_from_memory_with_format(&icon, ImageFormat::Png).unwrap();
 
         assert_eq!(decoded.dimensions(), (32, 32));
+        assert!(decoded.to_rgba8().pixels().any(|pixel| pixel[3] > 0));
         let _ = std::fs::remove_file(path);
     }
 }
