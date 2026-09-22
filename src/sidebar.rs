@@ -1,7 +1,8 @@
-use iced::widget::{button, column, text, container, row, svg, scrollable, mouse_area};
+use iced::widget::{button, column, text, container, row, svg, scrollable, mouse_area, tooltip};
 use iced::{Element, Length};
 use crate::icons;
 use std::path::{Path, PathBuf};
+use std::time::Duration;
 
 #[derive(Debug, Clone)]
 pub enum SidebarMessage {
@@ -9,9 +10,15 @@ pub enum SidebarMessage {
     AddCurrentPath(PathBuf),
     RemovePath(PathBuf),
     ItemRightClicked(PathBuf),
+    ToggleRecentLocations,
 }
 
-pub fn view(quick_access_paths: &[PathBuf], current_path: &Path) -> Element<'static, SidebarMessage> {
+pub fn view(
+    quick_access_paths: &[PathBuf],
+    recent_locations: &[PathBuf],
+    recent_locations_expanded: bool,
+    current_path: &Path,
+) -> Element<'static, SidebarMessage> {
     let title = text("Quick Access")
         .size(16)
         .font(iced::Font {
@@ -143,10 +150,109 @@ pub fn view(quick_access_paths: &[PathBuf], current_path: &Path) -> Element<'sta
         list_col = list_col.push(add_btn);
     }
 
-    let sidebar_layout = column![
-        title,
-        scrollable(list_col).height(Length::Fill)
-    ].spacing(10);
+    let disclosure = if recent_locations_expanded { "▼" } else { "▶" };
+    let recent_header = button(
+        row![
+            text(disclosure).size(11),
+            text("Recent locations")
+                .size(16)
+                .font(iced::Font {
+                    weight: iced::font::Weight::Bold,
+                    family: iced::font::Family::Name("system-ui"),
+                    ..Default::default()
+                })
+        ]
+        .spacing(6)
+        .align_y(iced::Alignment::Center)
+    )
+    .width(Length::Fill)
+    .padding(4)
+    .on_press(SidebarMessage::ToggleRecentLocations)
+    .style(|theme: &iced::Theme, status| {
+        let palette = theme.extended_palette();
+        button::Style {
+            background: (status == button::Status::Hovered)
+                .then(|| palette.background.base.color.into()),
+            text_color: palette.background.strong.text,
+            border: iced::Border {
+                radius: 12.0.into(),
+                ..Default::default()
+            },
+            ..Default::default()
+        }
+    });
+
+    let mut sidebar_content = column![title, list_col, recent_header].spacing(10);
+
+    if recent_locations_expanded {
+        let mut recent_list = column![].spacing(5);
+        for path in recent_locations {
+            let is_current = path == current_path;
+            let path_clone = path.clone();
+            let full_path = path.to_string_lossy().into_owned();
+            let display_name = path
+                .file_name()
+                .map(|name| name.to_string_lossy().into_owned())
+                .unwrap_or_else(|| full_path.clone());
+            let recent_button = button(
+                row![
+                    svg(svg::Handle::from_memory(icons::FOLDER_SVG))
+                        .width(16)
+                        .height(16),
+                    text(display_name).size(12)
+                ]
+                .spacing(6)
+                .align_y(iced::Alignment::Center)
+            )
+            .width(Length::Fill)
+            .padding(8)
+            .on_press(SidebarMessage::SelectPath(path_clone))
+            .style(move |theme: &iced::Theme, status| {
+                let palette = theme.extended_palette();
+                let background = if is_current {
+                    Some(palette.background.strong.color.into())
+                } else if status == button::Status::Hovered {
+                    Some(palette.background.base.color.into())
+                } else {
+                    None
+                };
+
+                button::Style {
+                    background,
+                    text_color: palette.background.strong.text,
+                    border: iced::Border {
+                        radius: 12.0.into(),
+                        ..Default::default()
+                    },
+                    ..Default::default()
+                }
+            });
+            let recent_with_tooltip = tooltip(
+                recent_button,
+                text(full_path).size(12),
+                tooltip::Position::Right,
+            )
+            .gap(6)
+            .padding(8)
+            .delay(Duration::from_millis(400))
+            .style(|theme: &iced::Theme| {
+                let palette = theme.extended_palette();
+                container::Style {
+                    background: Some(palette.background.strong.color.into()),
+                    text_color: Some(palette.background.strong.text),
+                    border: iced::Border {
+                        radius: 12.0.into(),
+                        ..Default::default()
+                    },
+                    ..Default::default()
+                }
+            });
+            recent_list = recent_list.push(recent_with_tooltip);
+        }
+        sidebar_content = sidebar_content.push(recent_list);
+    }
+
+    let sidebar_layout = scrollable(sidebar_content).height(Length::Fill);
 
     container(sidebar_layout)
     .width(Length::Fixed(200.0))

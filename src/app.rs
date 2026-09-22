@@ -23,6 +23,7 @@ pub struct App {
     settings: settings::Settings,
     tabs_state: tabs::TabsState,
     sidebar_paths: Vec<PathBuf>,
+    recent_locations_expanded: bool,
     address_input: String,
     address_invalid: bool,
     address_editing: bool,
@@ -91,10 +92,12 @@ pub enum Message {
 
 impl App {
     pub fn boot() -> (Self, Task<Message>) {
-        let settings = settings::load_settings();
+        let mut settings = settings::load_settings();
         let initial_path = settings.last_directory
             .clone()
             .unwrap_or_else(|| dirs::home_dir().unwrap_or_else(|| PathBuf::from("/")));
+        settings.record_recent_location(initial_path.clone());
+        let _ = settings::save_settings(&settings);
 
         let grid_items = grid_view::read_directory(&initial_path).unwrap_or_default();
         let sidebar_paths = settings.quick_access_paths.clone();
@@ -104,6 +107,7 @@ impl App {
             settings: settings.clone(),
             tabs_state: tabs::TabsState::new(initial_path),
             sidebar_paths,
+            recent_locations_expanded: false,
             address_input,
             address_invalid: false,
             address_editing: false,
@@ -161,6 +165,9 @@ impl App {
                             target_is_dir: true,
                             is_sidebar: true,
                         });
+                    }
+                    sidebar::SidebarMessage::ToggleRecentLocations => {
+                        self.recent_locations_expanded = !self.recent_locations_expanded;
                     }
                 }
             }
@@ -547,15 +554,14 @@ impl App {
 
     fn navigate_to_path(&mut self, path: PathBuf) -> Task<Message> {
         self.tabs_state.active_tab_mut().navigate_to(path.clone());
-        let task = self.on_navigation_changed();
-        
-        self.settings.last_directory = Some(path);
-        let _ = settings::save_settings(&self.settings);
-        task
+        self.on_navigation_changed()
     }
 
     fn on_navigation_changed(&mut self) -> Task<Message> {
         let current = self.tabs_state.active_path().clone();
+        self.settings.last_directory = Some(current.clone());
+        self.settings.record_recent_location(current.clone());
+        let _ = settings::save_settings(&self.settings);
         self.address_input = current.to_string_lossy().into_owned();
         self.address_invalid = false;
         self.address_editing = false;
@@ -771,7 +777,13 @@ impl App {
         main_content = main_content.push(items_element).push(bottom_bar);
 
         let body = row![
-            sidebar::view(&self.sidebar_paths, self.tabs_state.active_path()).map(Message::Sidebar),
+            sidebar::view(
+                &self.sidebar_paths,
+                &self.settings.recent_locations,
+                self.recent_locations_expanded,
+                self.tabs_state.active_path(),
+            )
+            .map(Message::Sidebar),
             main_content
         ]
         .width(Length::Fill)
