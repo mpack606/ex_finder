@@ -23,6 +23,7 @@ pub struct App {
     sidebar_paths: Vec<PathBuf>,
     address_input: String,
     address_invalid: bool,
+    address_editing: bool,
     search_query: String,
     sort_order: sorting::SortOrder,
     grid_items: Vec<grid_view::DirectoryItem>,
@@ -100,6 +101,7 @@ impl App {
             sidebar_paths,
             address_input,
             address_invalid: false,
+            address_editing: false,
             search_query: String::new(),
             sort_order: sorting::SortOrder::default(),
             grid_items,
@@ -158,8 +160,15 @@ impl App {
             }
             Message::AddressBar(address_msg) => {
                 match address_msg {
+                    address_bar::AddressBarMessage::Edit => {
+                        self.address_editing = true;
+                        return iced::widget::operation::focus(address_bar::ADDRESS_INPUT_ID);
+                    }
                     address_bar::AddressBarMessage::InputChanged(val) => {
                         self.address_input = val;
+                    }
+                    address_bar::AddressBarMessage::Navigate(path) => {
+                        return self.navigate_to_path(path);
                     }
                     address_bar::AddressBarMessage::Submit => {
                         let path = PathBuf::from(&self.address_input);
@@ -497,6 +506,7 @@ impl App {
         let current = self.tabs_state.active_path().clone();
         self.address_input = current.to_string_lossy().into_owned();
         self.address_invalid = false;
+        self.address_editing = false;
         self.selection.clear();
         self.grid_scroll_y = 0.0;
         self.context_menu = None;
@@ -655,7 +665,13 @@ impl App {
 
         let top_row = row![
             nav_buttons,
-            address_bar::view(&self.address_input, self.address_invalid).map(Message::AddressBar),
+            address_bar::view(
+                self.tabs_state.active_path(),
+                &self.address_input,
+                self.address_invalid,
+                self.address_editing,
+            )
+            .map(Message::AddressBar),
             search::view(&self.search_query).map(Message::Search),
             sorting::view(self.sort_order).map(Message::Sorting),
         ]
