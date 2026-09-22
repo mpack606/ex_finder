@@ -64,6 +64,10 @@ impl TabsState {
         &mut self.list[self.active_index]
     }
 
+    pub fn active_tab(&self) -> &navigation::NavigationState {
+        &self.list[self.active_index]
+    }
+
     pub fn active_path(&self) -> &PathBuf {
         &self.list[self.active_index].current_path
     }

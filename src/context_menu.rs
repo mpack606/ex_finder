@@ -1,6 +1,6 @@
 use crate::commands::{self, Command, CommandKind};
 use iced::widget::{button, column, container, mouse_area, row, text};
-use iced::{Alignment, Border, Element, Length, Padding, Point, Task};
+use iced::{Alignment, Border, Element, Length, Padding, Point};
 use std::path::PathBuf;
 
 pub use crate::commands::Command as ContextMenuAction;
@@ -9,42 +9,6 @@ pub use crate::commands::Command as ContextMenuAction;
 pub enum ContextMenuMessage {
     Action(ContextMenuAction),
     Close,
-}
-
-#[derive(Debug, Clone)]
-pub enum ContextMenuEvent {
-    Refresh,
-    RefreshAndSelect(Vec<PathBuf>),
-    CutCompleted(Vec<PathBuf>),
-    Rename(PathBuf),
-    OpenInNewTab(PathBuf),
-    GetInfo(PathBuf),
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum ClipboardOperation {
-    Copy,
-    Cut,
-}
-
-#[derive(Debug, Clone, Default)]
-pub struct Clipboard {
-    pub paths: Vec<PathBuf>,
-    pub operation: Option<ClipboardOperation>,
-}
-
-impl Clipboard {
-    pub fn has_items(&self) -> bool {
-        !self.paths.is_empty()
-    }
-
-    pub fn cut_paths(&self) -> &[PathBuf] {
-        if self.operation == Some(ClipboardOperation::Cut) {
-            &self.paths
-        } else {
-            &[]
-        }
-    }
 }
 
 pub struct ContextMenuState {
@@ -199,101 +163,6 @@ pub fn view(
     .into()
 }
 
-pub fn handle_action(
-    action: ContextMenuAction,
-    clipboard: &mut Clipboard,
-    current_path: PathBuf,
-) -> Task<Option<ContextMenuEvent>> {
-    match action {
-        ContextMenuAction::OpenInNewTab(path) => {
-            Task::done(Some(ContextMenuEvent::OpenInNewTab(path)))
-        }
-        ContextMenuAction::GetInfo(path) => Task::done(Some(ContextMenuEvent::GetInfo(path))),
-        ContextMenuAction::Copy(paths) => {
-            clipboard.paths = paths;
-            clipboard.operation = Some(ClipboardOperation::Copy);
-            Task::done(Some(ContextMenuEvent::Refresh))
-        }
-        ContextMenuAction::Cut(paths) => {
-            clipboard.paths = paths;
-            clipboard.operation = Some(ClipboardOperation::Cut);
-            Task::done(Some(ContextMenuEvent::Refresh))
-        }
-        ContextMenuAction::Paste(destination) => {
-            if clipboard.has_items() {
-                let paths = clipboard.paths.clone();
-                let operation = clipboard.operation;
-                Task::perform(
-                    async move {
-                        match operation {
-                            Some(ClipboardOperation::Cut) => {
-                                commands::move_items(&paths, &destination)
-                            }
-                            _ => commands::copy(&paths, &destination),
-                        }
-                    },
-                    move |result| match result {
-                        Ok(paths) if operation == Some(ClipboardOperation::Cut) => {
-                            Some(ContextMenuEvent::CutCompleted(paths))
-                        }
-                        Ok(paths) => Some(ContextMenuEvent::RefreshAndSelect(paths)),
-                        Err(error) => {
-                            eprintln!("Failed to paste: {}", error);
-                            Some(ContextMenuEvent::Refresh)
-                        }
-                    },
-                )
-            } else {
-                Task::none()
-            }
-        }
-        ContextMenuAction::Move(paths, destination) => Task::perform(
-            async move { commands::move_items(&paths, &destination) },
-            |result| match result {
-                Ok(_) => Some(ContextMenuEvent::Refresh),
-                Err(error) => {
-                    eprintln!("Failed to move: {}", error);
-                    Some(ContextMenuEvent::Refresh)
-                }
-            },
-        ),
-        ContextMenuAction::MoveToTrash(paths) => {
-            Task::perform(async move { commands::move_to_trash(&paths) }, |result| {
-                if let Err(error) = result {
-                    eprintln!("Failed to move to trash: {}", error);
-                }
-                Some(ContextMenuEvent::Refresh)
-            })
-        }
-        ContextMenuAction::Rename(path) => Task::done(Some(ContextMenuEvent::Rename(path))),
-        ContextMenuAction::Zip(paths) => {
-            Task::perform(async move { commands::zip(&paths) }, |path| {
-                Some(ContextMenuEvent::RefreshAndSelect(
-                    path.into_iter().collect(),
-                ))
-            })
-        }
-        ContextMenuAction::Unzip(path) => {
-            Task::perform(async move { commands::unzip(&path) }, |result| {
-                if let Err(error) = result {
-                    eprintln!("Failed to unzip: {}", error);
-                }
-                Some(ContextMenuEvent::Refresh)
-            })
-        }
-        ContextMenuAction::CreateNewFolder => Task::perform(
-            async move { commands::create_new_folder(&current_path) },
-            |result| {
-                if let Err(error) = result {
-                    eprintln!("Failed to create folder: {}", error);
-                }
-                Some(ContextMenuEvent::Refresh)
-            },
-        ),
-        ContextMenuAction::Refresh => Task::done(Some(ContextMenuEvent::Refresh)),
-    }
-}
-
 fn paste_destination(state: &ContextMenuState, current_path: &std::path::Path) -> PathBuf {
     if state.paths.len() == 1 && state.target_is_dir {
         state.paths[0].clone()
@@ -303,78 +172,9 @@ fn paste_destination(state: &ContextMenuState, current_path: &std::path::Path) -
 }
 
 #[cfg(test)]
-fn create_new_folder(current_path: impl AsRef<std::path::Path>) -> std::io::Result<()> {
-    commands::create_new_folder(current_path.as_ref()).map(|_| ())
-}
-
-#[cfg(test)]
 #[allow(clippy::items_after_test_module)]
 mod tests {
     use super::*;
-    use std::fs;
-
-    #[test]
-    fn create_new_folder_creates_new_folder_in_current_directory() {
-        let current_path = std::env::temp_dir().join(format!(
-            "ex_finder_create_folder_{}",
-            std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .unwrap()
-                .as_nanos()
-        ));
-        fs::create_dir(&current_path).unwrap();
-
-        let result = create_new_folder(&current_path);
-
-        assert!(result.is_ok());
-        assert!(current_path.join("New Folder").is_dir());
-        fs::remove_dir_all(current_path).unwrap();
-    }
-
-    #[test]
-    fn create_new_folder_returns_error_when_folder_already_exists() {
-        let current_path = std::env::temp_dir().join(format!(
-            "ex_finder_create_folder_existing_{}",
-            std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .unwrap()
-                .as_nanos()
-        ));
-        fs::create_dir_all(current_path.join("New Folder")).unwrap();
-
-        let result = create_new_folder(&current_path);
-
-        assert!(result.is_err());
-        fs::remove_dir_all(current_path).unwrap();
-    }
-
-    #[test]
-    fn handle_action_copy_sets_multiple_paths_in_clipboard() {
-        let mut clipboard = Clipboard::default();
-        let paths = vec![PathBuf::from("/tmp/a.txt"), PathBuf::from("/tmp/b.txt")];
-        let _ = handle_action(
-            ContextMenuAction::Copy(paths.clone()),
-            &mut clipboard,
-            PathBuf::from("/tmp"),
-        );
-        assert_eq!(clipboard.paths, paths);
-        assert_eq!(clipboard.operation, Some(ClipboardOperation::Copy));
-    }
-
-    #[test]
-    fn handle_action_cut_marks_clipboard_for_move() {
-        let mut clipboard = Clipboard::default();
-        let paths = vec![PathBuf::from("/tmp/a.txt"), PathBuf::from("/tmp/b.txt")];
-        let _ = handle_action(
-            ContextMenuAction::Cut(paths.clone()),
-            &mut clipboard,
-            PathBuf::from("/tmp"),
-        );
-
-        assert_eq!(clipboard.paths, paths);
-        assert_eq!(clipboard.operation, Some(ClipboardOperation::Cut));
-        assert_eq!(clipboard.cut_paths(), clipboard.paths);
-    }
 
     #[test]
     fn paste_destination_uses_the_context_folder() {

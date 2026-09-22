@@ -6,9 +6,12 @@ mod bottom_bar;
 mod commands;
 mod components;
 mod context_menu;
+mod directory;
+mod file_actions;
 mod file_info;
 mod grid_view;
 mod icons;
+mod layout;
 mod list_view;
 mod navigation;
 mod search;
@@ -16,7 +19,6 @@ mod settings;
 mod sidebar;
 mod sorting;
 mod tabs;
-mod updater;
 mod view_mode;
 
 use app::App;
@@ -31,11 +33,6 @@ fn theme(_state: &App) -> Theme {
 }
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
-    // Check for updates before starting the GUI
-    if let Err(e) = updater::handle_updates() {
-        eprintln!("Update check failed: {}", e);
-    }
-
     let settings = settings::load_settings();
 
     let icon = iced::window::icon::from_file_data(include_bytes!("../assets/icons/icon.png"), None)
@@ -50,6 +47,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             ..Default::default()
         })
         .default_font(iced::Font::with_name("system-ui"))
+        .exit_on_close_request(false)
         .subscription(App::subscription)
         .title(title)
         .theme(theme)

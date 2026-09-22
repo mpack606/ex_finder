@@ -4,6 +4,8 @@ use crate::bottom_bar;
 use crate::commands;
 use crate::components::{navigation, rename_modal, selection::SelectionState};
 use crate::context_menu;
+use crate::directory::{self, DirectoryItem};
+use crate::file_actions;
 use crate::file_info;
 use crate::grid_view;
 use crate::list_view;
@@ -15,14 +17,13 @@ use crate::tabs;
 use crate::view_mode;
 use iced::widget::{column, row, stack};
 use iced::{Alignment, Element, Event, Length, Size, Task, keyboard};
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 use std::path::PathBuf;
 use std::time::{Duration, Instant};
 
 pub struct App {
     settings: settings::Settings,
     tabs_state: tabs::TabsState,
-    sidebar_paths: Vec<PathBuf>,
     recent_locations_expanded: bool,
     address_input: String,
     address_invalid: bool,
@@ -30,7 +31,10 @@ pub struct App {
     search_query: String,
     sort_order: sorting::SortOrder,
     view_mode: view_mode::ViewMode,
-    grid_items: Vec<grid_view::DirectoryItem>,
+    directory: directory::State,
+    loaded_icons: HashMap<PathBuf, iced::widget::image::Handle>,
+    operation_error: Option<String>,
+    settings_save_generation: u64,
     icon_load_generation: u64,
     pub selection: SelectionState,
     pub modifiers: iced::keyboard::Modifiers,
@@ -41,7 +45,7 @@ pub struct App {
     last_click: Option<(PathBuf, Instant)>,
     cursor_position: iced::Point,
     context_menu: Option<context_menu::ContextMenuState>,
-    clipboard: context_menu::Clipboard,
+    clipboard: file_actions::Clipboard,
     item_drag: Option<ItemDragState>,
     hovered_grid_item: Option<PathBuf>,
     suppress_next_item_click: bool,
@@ -67,11 +71,18 @@ pub enum Message {
     List(list_view::ListMessage),
     ViewMode(view_mode::Message),
     AppIconsFound(Vec<PathBuf>, u64, Option<Vec<u8>>),
+    DirectoryLoaded(directory::LoadResult),
+    OperationCompleted(file_actions::Event),
+    SaveSettings(u64),
+    SettingsSaved(Result<(), String>),
+    ExitRequested(iced::window::Id),
+    SettingsSavedAndClose(iced::window::Id, Result<(), String>),
     WindowResized(iced::window::Id, Size),
     MouseMoved(iced::Point),
     ModifiersChanged(iced::keyboard::Modifiers),
     GlobalMouseUp,
     ContextMenu(context_menu::ContextMenuMessage),
+    Navigation(navigation::Message),
     Shortcut(commands::CommandKind),
     Tabs(tabs::TabsMessage),
     RenameRequested(PathBuf),
@@ -84,30 +95,22 @@ pub enum Message {
     Refresh,
     RefreshAndSelect(Vec<PathBuf>),
     CutCompleted(Vec<PathBuf>),
-    NavigateBack,
-    NavigateForward,
-    NavigateUp,
-    None,
 }
 
 impl App {
     pub fn boot() -> (Self, Task<Message>) {
-        let mut settings = settings::load_settings();
+        let settings = settings::load_settings();
         let initial_path = settings
             .last_directory
             .clone()
             .unwrap_or_else(|| dirs::home_dir().unwrap_or_else(|| PathBuf::from("/")));
-        settings.record_recent_location(initial_path.clone());
-        let _ = settings::save_settings(&settings);
-
-        let grid_items = grid_view::read_directory(&initial_path).unwrap_or_default();
-        let sidebar_paths = settings.quick_access_paths.clone();
         let address_input = initial_path.to_string_lossy().into_owned();
+        let window_width = settings.window_width as f32;
+        let window_height = settings.window_height as f32;
 
         let mut app = Self {
-            settings: settings.clone(),
-            tabs_state: tabs::TabsState::new(initial_path),
-            sidebar_paths,
+            settings,
+            tabs_state: tabs::TabsState::new(initial_path.clone()),
             recent_locations_expanded: false,
             address_input,
             address_invalid: false,
@@ -115,18 +118,21 @@ impl App {
             search_query: String::new(),
             sort_order: sorting::SortOrder::default(),
             view_mode: view_mode::ViewMode::default(),
-            grid_items,
+            directory: directory::State::default(),
+            loaded_icons: HashMap::new(),
+            operation_error: None,
+            settings_save_generation: 0,
             icon_load_generation: 0,
             selection: SelectionState::default(),
             modifiers: iced::keyboard::Modifiers::default(),
             grid_scroll_y: 0.0,
             cursor_in_grid: iced::Point::ORIGIN,
-            window_width: settings.window_width as f32,
-            window_height: settings.window_height as f32,
+            window_width,
+            window_height,
             last_click: None,
             cursor_position: iced::Point::ORIGIN,
             context_menu: None,
-            clipboard: context_menu::Clipboard::default(),
+            clipboard: file_actions::Clipboard::default(),
             item_drag: None,
             hovered_grid_item: None,
             suppress_next_item_click: false,
@@ -134,7 +140,13 @@ impl App {
             file_info: None,
         };
 
-        let task = app.load_app_icons();
+        let task = app.request_directory_load(
+            initial_path,
+            directory::LoadAction::Current {
+                select: Some(Vec::new()),
+                record_location: true,
+            },
+        );
 
         (app, task)
     }
@@ -148,14 +160,12 @@ impl App {
                 sidebar::SidebarMessage::AddCurrentPath(path) => {
                     if !self.settings.quick_access_paths.contains(&path) {
                         self.settings.quick_access_paths.push(path);
-                        self.sidebar_paths = self.settings.quick_access_paths.clone();
-                        let _ = settings::save_settings(&self.settings);
+                        return self.schedule_settings_save();
                     }
                 }
                 sidebar::SidebarMessage::RemovePath(path) => {
                     self.settings.quick_access_paths.retain(|p| p != &path);
-                    self.sidebar_paths = self.settings.quick_access_paths.clone();
-                    let _ = settings::save_settings(&self.settings);
+                    return self.schedule_settings_save();
                 }
                 sidebar::SidebarMessage::ItemRightClicked(path) => {
                     self.selection.select_single(path.clone());
@@ -284,13 +294,7 @@ impl App {
                         if is_dir {
                             return self.navigate_to_path(path);
                         } else {
-                            let path_clone = path.clone();
-                            return Task::perform(
-                                async move {
-                                    let _ = open::that(path_clone);
-                                },
-                                |_| Message::None,
-                            );
+                            return file_actions::open(path).map(Message::OperationCompleted);
                         }
                     } else {
                         if self.modifiers.command() {
@@ -423,7 +427,14 @@ impl App {
             }
             Message::Tabs(tabs_msg) => {
                 if let Some(tabs::TabsEvent::NavigationChanged) = self.tabs_state.update(tabs_msg) {
-                    return self.on_navigation_changed();
+                    let path = self.tabs_state.active_path().clone();
+                    return self.request_directory_load(
+                        path,
+                        directory::LoadAction::Current {
+                            select: Some(Vec::new()),
+                            record_location: true,
+                        },
+                    );
                 }
             }
             Message::RenameRequested(path) => {
@@ -445,16 +456,8 @@ impl App {
                 if let Some((old_path, new_name)) = self.renaming_path.take()
                     && !new_name.is_empty()
                 {
-                    return Task::perform(
-                        async move { commands::rename(&old_path, &new_name) },
-                        |result| match result {
-                            Ok(new_path) => Message::RefreshAndSelect(vec![new_path]),
-                            Err(e) => {
-                                eprintln!("Failed to rename: {}", e);
-                                Message::Refresh
-                            }
-                        },
-                    );
+                    return file_actions::rename(old_path, new_name)
+                        .map(Message::OperationCompleted);
                 }
             }
             Message::CancelRename => {
@@ -467,7 +470,12 @@ impl App {
                 self.file_info = Some(file_info::State::Loading(path.clone()));
                 return Task::perform(
                     async move {
-                        let result = file_info::load(path.clone());
+                        let load_path = path.clone();
+                        let result =
+                            tokio::task::spawn_blocking(move || file_info::load(load_path))
+                                .await
+                                .map_err(|error| format!("background task failed: {error}"))
+                                .and_then(|result| result);
                         (path, result)
                     },
                     |(path, result)| Message::FileInfoLoaded(path, result),
@@ -487,14 +495,12 @@ impl App {
                     return Task::none();
                 }
 
-                let icon = icon_bytes.map(iced::widget::image::Handle::from_bytes);
-                let paths = paths.into_iter().collect::<HashSet<_>>();
-                for item in self
-                    .grid_items
-                    .iter_mut()
-                    .filter(|item| paths.contains(&item.path))
-                {
-                    item.app_icon = icon.clone();
+                if let Some(icon) = icon_bytes.map(iced::widget::image::Handle::from_bytes) {
+                    for path in paths {
+                        if self.directory.items.iter().any(|item| item.path == path) {
+                            self.loaded_icons.insert(path, icon.clone());
+                        }
+                    }
                 }
             }
             Message::WindowResized(_id, size) => {
@@ -502,75 +508,191 @@ impl App {
                 self.window_height = size.height;
                 self.settings.window_width = size.width as u32;
                 self.settings.window_height = size.height as u32;
-                let _ = settings::save_settings(&self.settings);
+                return self.schedule_settings_save();
             }
-            Message::NavigateBack => {
-                if self.tabs_state.active_tab_mut().navigate_back() {
-                    return self.on_navigation_changed();
+            Message::Navigation(message) => match message {
+                navigation::Message::Back => {
+                    if let Some(path) = self.tabs_state.active_tab().history_back.last().cloned() {
+                        return self.request_directory_load(path, directory::LoadAction::Back);
+                    }
                 }
-            }
-            Message::NavigateForward => {
-                if self.tabs_state.active_tab_mut().navigate_forward() {
-                    return self.on_navigation_changed();
+                navigation::Message::Forward => {
+                    if let Some(path) = self.tabs_state.active_tab().history_forward.last().cloned()
+                    {
+                        return self.request_directory_load(path, directory::LoadAction::Forward);
+                    }
                 }
-            }
-            Message::NavigateUp => {
-                if let Some(parent) = self.tabs_state.active_path().parent() {
-                    let parent = parent.to_path_buf();
-                    return self.navigate_to_path(parent);
+                navigation::Message::Up => {
+                    if let Some(parent) = self.tabs_state.active_path().parent() {
+                        let parent = parent.to_path_buf();
+                        return self.navigate_to_path(parent);
+                    }
                 }
-            }
+            },
             Message::Refresh => {
-                self.grid_items =
-                    grid_view::read_directory(self.tabs_state.active_path()).unwrap_or_default();
-                return self.load_app_icons();
+                return self.request_directory_load(
+                    self.tabs_state.active_path().clone(),
+                    directory::LoadAction::Current {
+                        select: None,
+                        record_location: false,
+                    },
+                );
             }
             Message::RefreshAndSelect(paths) => {
-                self.grid_items =
-                    grid_view::read_directory(self.tabs_state.active_path()).unwrap_or_default();
-                let paths = paths
-                    .into_iter()
-                    .filter(|path| self.grid_items.iter().any(|item| item.path == *path))
-                    .collect();
-                self.selection.select_paths(paths);
-                return self.load_app_icons();
+                return self.request_directory_load(
+                    self.tabs_state.active_path().clone(),
+                    directory::LoadAction::Current {
+                        select: Some(paths),
+                        record_location: false,
+                    },
+                );
             }
             Message::CutCompleted(paths) => {
-                self.clipboard = context_menu::Clipboard::default();
+                self.clipboard.clear();
                 return self.update(Message::RefreshAndSelect(paths));
             }
-            Message::None => {}
+            Message::DirectoryLoaded(load) => {
+                if !self.directory.accepts(load.generation) {
+                    return Task::none();
+                }
+                match load.result {
+                    Ok(items) => {
+                        return self.finish_directory_load(load.path, load.action, items);
+                    }
+                    Err(error) => self.operation_error = Some(error),
+                }
+            }
+            Message::OperationCompleted(event) => return self.handle_operation_event(event),
+            Message::SaveSettings(generation) => {
+                if generation != self.settings_save_generation {
+                    return Task::none();
+                }
+                let settings = self.settings.clone();
+                return Task::perform(
+                    async move {
+                        tokio::task::spawn_blocking(move || {
+                            settings::save_settings(&settings).map_err(|error| error.to_string())
+                        })
+                        .await
+                        .map_err(|error| format!("background task failed: {error}"))
+                        .and_then(|result| result)
+                    },
+                    Message::SettingsSaved,
+                );
+            }
+            Message::SettingsSaved(result) => {
+                if let Err(error) = result {
+                    self.operation_error = Some(format!("Could not save settings: {error}"));
+                }
+            }
+            Message::ExitRequested(id) => {
+                let settings = self.settings.clone();
+                return Task::perform(
+                    async move {
+                        tokio::task::spawn_blocking(move || {
+                            settings::save_settings(&settings).map_err(|error| error.to_string())
+                        })
+                        .await
+                        .map_err(|error| format!("background task failed: {error}"))
+                        .and_then(|result| result)
+                    },
+                    move |result| Message::SettingsSavedAndClose(id, result),
+                );
+            }
+            Message::SettingsSavedAndClose(id, result) => {
+                if let Err(error) = result {
+                    eprintln!("Could not save settings before closing: {error}");
+                }
+                return iced::window::close(id);
+            }
         }
         Task::none()
     }
 
     fn navigate_to_path(&mut self, path: PathBuf) -> Task<Message> {
-        self.tabs_state.active_tab_mut().navigate_to(path.clone());
-        self.on_navigation_changed()
+        self.request_directory_load(path, directory::LoadAction::Navigate)
     }
 
-    fn on_navigation_changed(&mut self) -> Task<Message> {
-        let current = self.tabs_state.active_path().clone();
-        self.settings.last_directory = Some(current.clone());
-        self.settings.record_recent_location(current.clone());
-        let _ = settings::save_settings(&self.settings);
-        self.address_input = current.to_string_lossy().into_owned();
+    fn request_directory_load(
+        &mut self,
+        path: PathBuf,
+        action: directory::LoadAction,
+    ) -> Task<Message> {
+        if matches!(
+            &action,
+            directory::LoadAction::Current {
+                record_location: true,
+                ..
+            }
+        ) {
+            self.directory.items.clear();
+            self.selection.clear();
+        }
+        self.operation_error = None;
+        self.directory
+            .request(path, action)
+            .map(Message::DirectoryLoaded)
+    }
+
+    fn finish_directory_load(
+        &mut self,
+        path: PathBuf,
+        action: directory::LoadAction,
+        items: Vec<DirectoryItem>,
+    ) -> Task<Message> {
+        let (selection, record_location) = match action {
+            directory::LoadAction::Current {
+                select,
+                record_location,
+            } => (select, record_location),
+            directory::LoadAction::Navigate => {
+                self.tabs_state.active_tab_mut().navigate_to(path.clone());
+                (Some(Vec::new()), true)
+            }
+            directory::LoadAction::Back => {
+                self.tabs_state.active_tab_mut().navigate_back();
+                (Some(Vec::new()), true)
+            }
+            directory::LoadAction::Forward => {
+                self.tabs_state.active_tab_mut().navigate_forward();
+                (Some(Vec::new()), true)
+            }
+        };
+
+        self.directory.items = items;
+        self.loaded_icons.clear();
+        if let Some(paths) = selection {
+            let paths = paths
+                .into_iter()
+                .filter(|path| self.directory.items.iter().any(|item| item.path == *path))
+                .collect();
+            self.selection.select_paths(paths);
+        }
+        self.operation_error = None;
+        self.address_input = path.to_string_lossy().into_owned();
         self.address_invalid = false;
         self.address_editing = false;
-        self.selection.clear();
         self.grid_scroll_y = 0.0;
         self.context_menu = None;
         self.file_info = None;
-        self.grid_items = grid_view::read_directory(&current).unwrap_or_default();
-        self.load_app_icons()
+
+        let icon_task = self.load_app_icons();
+        if record_location {
+            self.settings.last_directory = Some(path.clone());
+            self.settings.record_recent_location(path);
+            Task::batch([icon_task, self.schedule_settings_save()])
+        } else {
+            icon_task
+        }
     }
 
-    pub fn filtered_items(&self) -> Vec<grid_view::DirectoryItem> {
+    pub fn filtered_items(&self) -> Vec<DirectoryItem> {
         let mut items = if self.search_query.is_empty() {
-            self.grid_items.clone()
+            self.directory.items.clone()
         } else {
             let query = self.search_query.to_lowercase();
-            self.grid_items
+            self.directory
+                .items
                 .iter()
                 .filter(|item| item.name.to_lowercase().contains(&query))
                 .cloned()
@@ -584,7 +706,7 @@ impl App {
         self.icon_load_generation = self.icon_load_generation.wrapping_add(1);
         let generation = self.icon_load_generation;
         let mut paths_by_icon = HashMap::<app_icons::IconKey, Vec<PathBuf>>::new();
-        for item in self.grid_items.iter().filter(|item| !item.is_dir) {
+        for item in self.directory.items.iter().filter(|item| !item.is_dir) {
             paths_by_icon
                 .entry(app_icons::cache_key(&item.path))
                 .or_default()
@@ -595,7 +717,12 @@ impl App {
             let sample_path = paths[0].clone();
             Task::perform(
                 async move {
-                    let icon = app_icons::get_app_icon_for_file(&sample_path);
+                    let icon = tokio::task::spawn_blocking(move || {
+                        app_icons::get_app_icon_for_file(&sample_path)
+                    })
+                    .await
+                    .ok()
+                    .flatten();
                     (paths, generation, icon)
                 },
                 |(paths, generation, icon)| Message::AppIconsFound(paths, generation, icon),
@@ -607,26 +734,42 @@ impl App {
 
     fn execute_command(&mut self, command: commands::Command) -> Task<Message> {
         self.context_menu = None;
-        context_menu::handle_action(
+        self.operation_error = None;
+        file_actions::execute(
             command,
             &mut self.clipboard,
             self.tabs_state.active_path().clone(),
         )
-        .map(|event| match event {
-            Some(context_menu::ContextMenuEvent::Refresh) => Message::Refresh,
-            Some(context_menu::ContextMenuEvent::RefreshAndSelect(paths)) => {
-                Message::RefreshAndSelect(paths)
+        .map(Message::OperationCompleted)
+    }
+
+    fn handle_operation_event(&mut self, event: file_actions::Event) -> Task<Message> {
+        match event {
+            file_actions::Event::Done => Task::none(),
+            file_actions::Event::Refresh => self.update(Message::Refresh),
+            file_actions::Event::RefreshAndSelect(paths) => {
+                self.update(Message::RefreshAndSelect(paths))
             }
-            Some(context_menu::ContextMenuEvent::CutCompleted(paths)) => {
-                Message::CutCompleted(paths)
+            file_actions::Event::CutCompleted(paths) => self.update(Message::CutCompleted(paths)),
+            file_actions::Event::Rename(path) => self.update(Message::RenameRequested(path)),
+            file_actions::Event::OpenInNewTab(path) => {
+                self.update(Message::Tabs(tabs::TabsMessage::Open(path)))
             }
-            Some(context_menu::ContextMenuEvent::Rename(path)) => Message::RenameRequested(path),
-            Some(context_menu::ContextMenuEvent::OpenInNewTab(path)) => {
-                Message::Tabs(tabs::TabsMessage::Open(path))
+            file_actions::Event::GetInfo(path) => self.update(Message::FileInfoRequested(path)),
+            file_actions::Event::Failed(error) => {
+                self.operation_error = Some(error);
+                Task::none()
             }
-            Some(context_menu::ContextMenuEvent::GetInfo(path)) => Message::FileInfoRequested(path),
-            None => Message::None,
-        })
+        }
+    }
+
+    fn schedule_settings_save(&mut self) -> Task<Message> {
+        self.settings_save_generation = self.settings_save_generation.wrapping_add(1);
+        let generation = self.settings_save_generation;
+        Task::perform(
+            async move { tokio::time::sleep(Duration::from_millis(500)).await },
+            move |_| Message::SaveSettings(generation),
+        )
     }
 
     fn handle_shortcut(&mut self, command_kind: commands::CommandKind) -> Task<Message> {
@@ -651,7 +794,7 @@ impl App {
                     .selection
                     .selected
                     .iter()
-                    .filter(|path| self.grid_items.iter().any(|item| &item.path == *path))
+                    .filter(|path| self.directory.items.iter().any(|item| &item.path == *path))
                     .cloned()
                     .collect();
                 if paths.is_empty() {
@@ -714,7 +857,7 @@ impl App {
     }
 
     pub fn view(&self) -> Element<'_, Message> {
-        let nav_buttons = navigation::view_controls();
+        let nav_buttons = navigation::view_controls().map(Message::Navigation);
 
         let top_row = row![
             nav_buttons,
@@ -736,19 +879,24 @@ impl App {
         let items_element: Element<'_, Message> = match self.view_mode {
             view_mode::ViewMode::Grid => grid_view::view(
                 &filtered_items,
-                &self.selection.selected,
-                self.window_width,
-                self.selection.drag_rect(),
-                self.item_drag
-                    .as_ref()
-                    .and_then(|drag| drag.drop_target.as_deref()),
-                self.hovered_grid_item.as_deref(),
-                self.clipboard.cut_paths(),
+                grid_view::ViewOptions {
+                    selected_items: &self.selection.selected,
+                    app_icons: &self.loaded_icons,
+                    window_width: self.window_width,
+                    drag_rect: self.selection.drag_rect(),
+                    drop_target: self
+                        .item_drag
+                        .as_ref()
+                        .and_then(|drag| drag.drop_target.as_deref()),
+                    hovered_item: self.hovered_grid_item.as_deref(),
+                    cut_items: self.clipboard.cut_paths(),
+                },
             )
             .map(Message::Grid),
             view_mode::ViewMode::List => list_view::view(
                 &filtered_items,
                 &self.selection.selected,
+                &self.loaded_icons,
                 self.item_drag
                     .as_ref()
                     .and_then(|drag| drag.drop_target.as_deref()),
@@ -759,8 +907,10 @@ impl App {
         };
 
         let selected_vec: Vec<PathBuf> = self.selection.selected.iter().cloned().collect();
+        let status = self.status_text();
         let bottom_bar = bottom_bar::view(
             &selected_vec,
+            status.as_deref(),
             view_mode::view(self.view_mode).map(Message::ViewMode),
             search::view(&self.search_query).map(Message::Search),
         );
@@ -773,7 +923,7 @@ impl App {
 
         let body = row![
             sidebar::view(
-                &self.sidebar_paths,
+                &self.settings.quick_access_paths,
                 &self.settings.recent_locations,
                 self.recent_locations_expanded,
                 self.tabs_state.active_path(),
@@ -808,9 +958,18 @@ impl App {
         root.into()
     }
 
+    fn status_text(&self) -> Option<String> {
+        self.directory
+            .loading
+            .as_ref()
+            .map(|path| format!("Loading {}…", path.display()))
+            .or_else(|| self.operation_error.clone())
+    }
+
     pub fn subscription(&self) -> iced::Subscription<Message> {
         iced::Subscription::batch(vec![
             iced::window::resize_events().map(|(id, size)| Message::WindowResized(id, size)),
+            iced::window::close_requests().map(Message::ExitRequested),
             iced::event::listen_with(|event, status, _window| {
                 match event {
                     Event::Mouse(iced::mouse::Event::CursorMoved { position }) => {

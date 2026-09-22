@@ -1,4 +1,4 @@
-use crate::grid_view::DirectoryItem;
+use crate::directory::DirectoryItem;
 use iced::widget::{pick_list, text};
 use iced::{Border, Element, Length};
 use std::cmp::Ordering;
@@ -129,7 +129,6 @@ mod tests {
             size,
             created: Some(UNIX_EPOCH + Duration::from_secs(seconds)),
             modified: Some(UNIX_EPOCH + Duration::from_secs(seconds)),
-            app_icon: None,
         }
     }
 

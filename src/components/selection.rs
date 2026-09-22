@@ -3,7 +3,9 @@ use std::path::PathBuf;
 
 use iced::{Point, keyboard::Modifiers};
 
-use crate::grid_view::{self, DirectoryItem};
+use crate::directory::DirectoryItem;
+use crate::grid_view;
+use crate::layout::Rect;
 use crate::{list_view, view_mode::ViewMode};
 
 #[derive(Debug, Clone, Default)]
@@ -122,7 +124,7 @@ impl SelectionState {
             (drag.start, drag.initial_selection.clone())
         };
 
-        let selection_rect = grid_view::Rect::from_points(start, position);
+        let selection_rect = Rect::from_points(start, position);
         let newly_selected: HashSet<PathBuf> = items
             .iter()
             .enumerate()
@@ -149,10 +151,10 @@ impl SelectionState {
         }
     }
 
-    pub fn drag_rect(&self) -> Option<grid_view::Rect> {
+    pub fn drag_rect(&self) -> Option<Rect> {
         self.drag
             .as_ref()
             .filter(|drag| drag.is_dragging)
-            .map(|drag| grid_view::Rect::from_points(drag.start, drag.current))
+            .map(|drag| Rect::from_points(drag.start, drag.current))
     }
 }

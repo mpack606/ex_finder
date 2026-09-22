@@ -1,59 +1,10 @@
+use crate::directory::DirectoryItem;
 use crate::icons;
+use crate::layout::Rect;
 use iced::widget::{column, container, image, mouse_area, row, scrollable, stack, svg, text};
 use iced::{Alignment, Color, Element, Font, Length, Point, font};
-use std::collections::HashSet;
-use std::fs;
+use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
-use std::time::SystemTime;
-
-#[derive(Debug, Clone)]
-pub struct DirectoryItem {
-    pub path: PathBuf,
-    pub name: String,
-    pub is_dir: bool,
-    pub is_hidden: bool,
-    pub size: u64,
-    pub created: Option<SystemTime>,
-    pub modified: Option<SystemTime>,
-    pub app_icon: Option<iced::widget::image::Handle>,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq)]
-pub struct Rect {
-    pub x: f32,
-    pub y: f32,
-    pub width: f32,
-    pub height: f32,
-}
-
-impl Rect {
-    pub fn from_points(p1: Point, p2: Point) -> Self {
-        let x = p1.x.min(p2.x);
-        let y = p1.y.min(p2.y);
-        let width = (p1.x - p2.x).abs();
-        let height = (p1.y - p2.y).abs();
-        Self {
-            x,
-            y,
-            width,
-            height,
-        }
-    }
-
-    pub fn intersects(&self, other: &Rect) -> bool {
-        self.x < other.x + other.width
-            && self.x + self.width > other.x
-            && self.y < other.y + other.height
-            && self.y + self.height > other.y
-    }
-
-    pub fn contains(&self, point: Point) -> bool {
-        point.x >= self.x
-            && point.x <= self.x + self.width
-            && point.y >= self.y
-            && point.y <= self.y + self.height
-    }
-}
 
 pub const ITEM_WIDTH: f32 = 100.0;
 pub const ITEM_HEIGHT: f32 = 88.0;
@@ -111,42 +62,6 @@ pub fn directory_at_position(
         .map(|(_, item)| item.path.clone())
 }
 
-pub fn read_directory(path: &Path) -> Result<Vec<DirectoryItem>, std::io::Error> {
-    let mut items = Vec::new();
-    for entry in fs::read_dir(path)? {
-        let entry = entry?;
-        let entry_path = entry.path();
-        let file_name = entry_path
-            .file_name()
-            .map(|name| name.to_string_lossy().into_owned())
-            .unwrap_or_default();
-
-        let is_hidden = file_name.starts_with('.');
-
-        let metadata = entry.metadata().ok();
-        let is_dir = metadata
-            .as_ref()
-            .map(|metadata| metadata.is_dir())
-            .unwrap_or_else(|| entry_path.is_dir());
-        items.push(DirectoryItem {
-            path: entry_path,
-            name: file_name,
-            is_dir,
-            is_hidden,
-            size: metadata.as_ref().map_or(0, |metadata| metadata.len()),
-            created: metadata
-                .as_ref()
-                .and_then(|metadata| metadata.created().ok()),
-            modified: metadata
-                .as_ref()
-                .and_then(|metadata| metadata.modified().ok()),
-            app_icon: None,
-        });
-    }
-
-    Ok(items)
-}
-
 fn display_name(name: &str) -> String {
     const MAX_CHARACTERS: usize = 12;
     const TRUNCATED_CHARACTERS: usize = 9;
@@ -165,45 +80,6 @@ fn display_name(name: &str) -> String {
 #[allow(clippy::items_after_test_module)]
 mod tests {
     use super::*;
-    use std::fs::File;
-
-    #[test]
-    fn test_read_directory_includes_hidden() {
-        let mut dir_path = std::env::temp_dir();
-        dir_path.push(format!(
-            "ex_finder_test_{}",
-            std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .unwrap()
-                .as_nanos()
-        ));
-        fs::create_dir_all(&dir_path).unwrap();
-
-        File::create(dir_path.join("visible.txt")).unwrap();
-        File::create(dir_path.join(".hidden.txt")).unwrap();
-        fs::create_dir(dir_path.join(".hidden_dir")).unwrap();
-        fs::create_dir(dir_path.join("visible_dir")).unwrap();
-
-        let result = read_directory(&dir_path);
-
-        // Cleanup before asserts to ensure it happens
-        let _ = fs::remove_dir_all(&dir_path);
-
-        let items = result.unwrap();
-        assert_eq!(items.len(), 4);
-
-        let hidden_file = items.iter().find(|i| i.name == ".hidden.txt").unwrap();
-        assert!(hidden_file.is_hidden);
-        assert!(!hidden_file.is_dir);
-
-        let hidden_dir = items.iter().find(|i| i.name == ".hidden_dir").unwrap();
-        assert!(hidden_dir.is_hidden);
-        assert!(hidden_dir.is_dir);
-
-        let visible_file = items.iter().find(|i| i.name == "visible.txt").unwrap();
-        assert!(!visible_file.is_hidden);
-        assert!(!visible_file.is_dir);
-    }
 
     #[test]
     fn display_name_truncates_unicode_on_character_boundaries() {
@@ -214,22 +90,6 @@ mod tests {
     #[test]
     fn grid_scrollable_uses_stable_identity() {
         assert_eq!(GRID_SCROLLABLE_ID, "grid-view-scrollable");
-    }
-
-    #[test]
-    fn directory_item_keeps_loaded_icon_handle_in_state() {
-        let item = DirectoryItem {
-            path: PathBuf::from("/tmp/example.txt"),
-            name: String::from("example.txt"),
-            is_dir: false,
-            is_hidden: false,
-            size: 0,
-            created: None,
-            modified: None,
-            app_icon: Some(image::Handle::from_bytes(Vec::new())),
-        };
-
-        assert!(item.app_icon.is_some());
     }
 
     #[test]
@@ -291,7 +151,6 @@ mod tests {
             size: 0,
             created: None,
             modified: None,
-            app_icon: None,
         };
         let file = DirectoryItem {
             path: PathBuf::from("/tmp/file.txt"),
@@ -301,7 +160,6 @@ mod tests {
             size: 0,
             created: None,
             modified: None,
-            app_icon: None,
         };
         let items = vec![folder.clone(), file];
         let width = 500.0;
@@ -317,15 +175,26 @@ mod tests {
     }
 }
 
-pub fn view(
-    items: &[DirectoryItem],
-    selected_items: &HashSet<PathBuf>,
-    window_width: f32,
-    drag_rect: Option<Rect>,
-    drop_target: Option<&Path>,
-    hovered_item: Option<&Path>,
-    cut_items: &[PathBuf],
-) -> Element<'static, GridMessage> {
+pub struct ViewOptions<'a> {
+    pub selected_items: &'a HashSet<PathBuf>,
+    pub app_icons: &'a HashMap<PathBuf, image::Handle>,
+    pub window_width: f32,
+    pub drag_rect: Option<Rect>,
+    pub drop_target: Option<&'a Path>,
+    pub hovered_item: Option<&'a Path>,
+    pub cut_items: &'a [PathBuf],
+}
+
+pub fn view(items: &[DirectoryItem], options: ViewOptions<'_>) -> Element<'static, GridMessage> {
+    let ViewOptions {
+        selected_items,
+        app_icons,
+        window_width,
+        drag_rect,
+        drop_target,
+        hovered_item,
+        cut_items,
+    } = options;
     let columns = get_columns(window_width);
 
     let mut grid_col = column![].spacing(SPACING);
@@ -379,7 +248,7 @@ pub fn view(
                     })
                 ];
 
-                if let Some(app_icon_handle) = &item.app_icon {
+                if let Some(app_icon_handle) = app_icons.get(&item.path) {
                     icon_stack = icon_stack.push(
                         container(
                             image(app_icon_handle.clone())

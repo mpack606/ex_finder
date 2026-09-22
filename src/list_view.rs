@@ -1,9 +1,10 @@
-use crate::grid_view::{DirectoryItem, Rect};
+use crate::directory::DirectoryItem;
 use crate::icons;
+use crate::layout::Rect;
 use chrono::{DateTime, Local};
 use iced::widget::{column, container, image, mouse_area, row, scrollable, svg, text};
 use iced::{Alignment, Color, Element, Length, Point};
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::time::SystemTime;
 
@@ -88,6 +89,7 @@ pub fn format_size(bytes: u64) -> String {
 pub fn view(
     items: &[DirectoryItem],
     selected_items: &HashSet<PathBuf>,
+    app_icons: &HashMap<PathBuf, image::Handle>,
     drop_target: Option<&Path>,
     hovered_item: Option<&Path>,
     cut_items: &[PathBuf],
@@ -115,7 +117,7 @@ pub fn view(
                 .height(24)
                 .opacity(opacity)
                 .into()
-        } else if let Some(handle) = &item.app_icon {
+        } else if let Some(handle) = app_icons.get(&item.path) {
             image(handle.clone())
                 .width(24)
                 .height(24)
@@ -245,7 +247,6 @@ mod tests {
             size,
             created: Some(UNIX_EPOCH + Duration::from_secs(1_700_000_000)),
             modified: None,
-            app_icon: None,
         }
     }
 

@@ -1,8 +1,14 @@
 use iced::widget::{button, row, svg};
 use iced::{Border, Element};
 
-use crate::app::Message;
 use crate::icons;
+
+#[derive(Debug, Clone, Copy)]
+pub enum Message {
+    Back,
+    Forward,
+    Up,
+}
 
 fn nav_button(svg_data: &'static [u8], message: Message) -> button::Button<'static, Message> {
     button(svg(svg::Handle::from_memory(svg_data)).width(16).height(16))
@@ -30,9 +36,9 @@ fn nav_button(svg_data: &'static [u8], message: Message) -> button::Button<'stat
 
 pub fn view_controls() -> Element<'static, Message> {
     row![
-        nav_button(icons::BACK_SVG, Message::NavigateBack),
-        nav_button(icons::FORWARD_SVG, Message::NavigateForward),
-        nav_button(icons::UP_SVG, Message::NavigateUp),
+        nav_button(icons::BACK_SVG, Message::Back),
+        nav_button(icons::FORWARD_SVG, Message::Forward),
+        nav_button(icons::UP_SVG, Message::Up),
     ]
     .spacing(6)
     .into()

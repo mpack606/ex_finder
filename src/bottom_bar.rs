@@ -15,10 +15,13 @@ pub fn format_selected_content(selected_items: &[PathBuf]) -> String {
 
 pub fn view<'a, Message: 'a>(
     selected_items: &[PathBuf],
+    status: Option<&str>,
     view_controls: Element<'a, Message>,
     search: Element<'a, Message>,
 ) -> Element<'a, Message> {
-    let content = format_selected_content(selected_items);
+    let content = status
+        .map(ToOwned::to_owned)
+        .unwrap_or_else(|| format_selected_content(selected_items));
 
     container(
         row![
