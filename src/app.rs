@@ -9,6 +9,7 @@ use crate::file_actions;
 use crate::file_info;
 use crate::grid_view;
 use crate::list_view;
+use crate::macos_drag;
 use crate::search;
 use crate::settings;
 use crate::sidebar;
@@ -47,6 +48,7 @@ pub struct App {
     context_menu: Option<context_menu::ContextMenuState>,
     clipboard: file_actions::Clipboard,
     item_drag: Option<ItemDragState>,
+    external_drag: Option<ExternalDragState>,
     hovered_grid_item: Option<PathBuf>,
     suppress_next_item_click: bool,
     renaming_path: Option<(PathBuf, String)>,
@@ -59,6 +61,13 @@ struct ItemDragState {
     start: iced::Point,
     is_dragging: bool,
     drop_target: Option<PathBuf>,
+}
+
+#[derive(Debug, Clone)]
+struct ExternalDragState {
+    paths: Vec<PathBuf>,
+    grid_origin: iced::Point,
+    is_inside: bool,
 }
 
 #[derive(Debug, Clone)]
@@ -79,6 +88,11 @@ pub enum Message {
     SettingsSavedAndClose(iced::window::Id, Result<(), String>),
     WindowResized(iced::window::Id, Size),
     MouseMoved(iced::Point),
+    CursorLeft(iced::window::Id),
+    ExternalDragStarted(Result<(), String>),
+    ExternalDragEnded(Option<macos_drag::Outcome>),
+    ExternalFileHovered(PathBuf),
+    ExternalFilesHoveredLeft,
     ModifiersChanged(iced::keyboard::Modifiers),
     GlobalMouseUp,
     ContextMenu(context_menu::ContextMenuMessage),
@@ -134,6 +148,7 @@ impl App {
             context_menu: None,
             clipboard: file_actions::Clipboard::default(),
             item_drag: None,
+            external_drag: None,
             hovered_grid_item: None,
             suppress_next_item_click: false,
             renaming_path: None,
@@ -400,11 +415,93 @@ impl App {
             Message::MouseMoved(position) => {
                 self.cursor_position = position;
             }
+            Message::CursorLeft(window_id) => {
+                if let Some(external_drag) = &mut self.external_drag {
+                    external_drag.is_inside = false;
+                    self.item_drag = None;
+                    return Task::none();
+                }
+                if let Some(paths) = take_external_drag(&mut self.item_drag) {
+                    self.suppress_next_item_click = true;
+                    self.external_drag = Some(ExternalDragState {
+                        paths: paths.clone(),
+                        grid_origin: iced::Point::new(
+                            self.cursor_position.x - self.cursor_in_grid.x,
+                            self.cursor_position.y - self.cursor_in_grid.y,
+                        ),
+                        is_inside: false,
+                    });
+                    return iced::window::run(window_id, move |window| {
+                        macos_drag::start(window, &paths)
+                    })
+                    .then(|result| match result {
+                        Ok(receiver) => Task::perform(
+                            async move {
+                                tokio::task::spawn_blocking(move || receiver.recv())
+                                    .await
+                                    .ok()
+                                    .and_then(Result::ok)
+                            },
+                            Message::ExternalDragEnded,
+                        ),
+                        Err(error) => Task::done(Message::ExternalDragStarted(Err(error))),
+                    });
+                }
+            }
+            Message::ExternalDragStarted(result) => {
+                if let Err(error) = result {
+                    self.operation_error = Some(error);
+                    self.external_drag = None;
+                }
+            }
+            Message::ExternalDragEnded(outcome) => {
+                let external_drag = self.external_drag.take();
+                self.item_drag = None;
+                let Some((external_drag, position)) = external_drag.zip(
+                    outcome
+                        .filter(|outcome| outcome.dropped)
+                        .and_then(|outcome| outcome.position),
+                ) else {
+                    return Task::none();
+                };
+                if position.x < 0.0
+                    || position.y < 0.0
+                    || position.x > self.window_width
+                    || position.y > self.window_height
+                {
+                    return Task::none();
+                }
+                return self.finish_external_drop(external_drag, position);
+            }
+            Message::ExternalFileHovered(path) => {
+                if let Some(external_drag) = &mut self.external_drag
+                    && external_drag.paths.contains(&path)
+                {
+                    external_drag.is_inside = true;
+                    if self.item_drag.is_none() {
+                        self.item_drag = Some(ItemDragState {
+                            paths: external_drag.paths.clone(),
+                            start: self.cursor_in_grid,
+                            is_dragging: true,
+                            drop_target: None,
+                        });
+                    }
+                }
+            }
+            Message::ExternalFilesHoveredLeft => {
+                if let Some(external_drag) = &mut self.external_drag {
+                    self.item_drag = None;
+                    external_drag.is_inside = false;
+                }
+            }
             Message::ModifiersChanged(modifiers) => {
                 self.modifiers = modifiers;
             }
             Message::GlobalMouseUp => {
                 self.selection.finish_drag();
+                if self.external_drag.is_some() {
+                    return Task::none();
+                }
                 if self.item_drag.as_ref().is_some_and(|drag| drag.is_dragging) {
                     let drag = self.item_drag.take().unwrap();
                     self.suppress_next_item_click = true;
@@ -611,6 +708,37 @@ impl App {
 
     fn navigate_to_path(&mut self, path: PathBuf) -> Task<Message> {
         self.request_directory_load(path, directory::LoadAction::Navigate)
+    }
+
+    fn finish_external_drop(
+        &mut self,
+        external_drag: ExternalDragState,
+        window_position: iced::Point,
+    ) -> Task<Message> {
+        let position = grid_position(window_position, external_drag.grid_origin);
+        let items = self.filtered_items();
+        let destination = match self.view_mode {
+            view_mode::ViewMode::Grid => grid_view::directory_at_position(
+                &items,
+                position,
+                self.window_width,
+                self.grid_scroll_y,
+            ),
+            view_mode::ViewMode::List => list_view::directory_at_position(
+                &items,
+                position,
+                self.window_width,
+                self.grid_scroll_y,
+            ),
+        }
+        .filter(|target| !external_drag.paths.contains(target));
+
+        if let Some(destination) = destination {
+            self.suppress_next_item_click = true;
+            self.execute_command(commands::Command::Move(external_drag.paths, destination))
+        } else {
+            Task::none()
+        }
     }
 
     fn request_directory_load(
@@ -970,13 +1098,22 @@ impl App {
         iced::Subscription::batch(vec![
             iced::window::resize_events().map(|(id, size)| Message::WindowResized(id, size)),
             iced::window::close_requests().map(Message::ExitRequested),
-            iced::event::listen_with(|event, status, _window| {
+            iced::event::listen_with(|event, status, window| {
                 match event {
                     Event::Mouse(iced::mouse::Event::CursorMoved { position }) => {
                         Some(Message::MouseMoved(position))
                     }
                     Event::Mouse(iced::mouse::Event::ButtonReleased(iced::mouse::Button::Left)) => {
                         Some(Message::GlobalMouseUp)
+                    }
+                    Event::Mouse(iced::mouse::Event::CursorLeft) => {
+                        Some(Message::CursorLeft(window))
+                    }
+                    Event::Window(iced::window::Event::FileHovered(path)) => {
+                        Some(Message::ExternalFileHovered(path))
+                    }
+                    Event::Window(iced::window::Event::FilesHoveredLeft) => {
+                        Some(Message::ExternalFilesHoveredLeft)
                     }
                     Event::Keyboard(keyboard::Event::ModifiersChanged(modifiers)) => {
                         Some(Message::ModifiersChanged(modifiers))
@@ -1010,5 +1147,63 @@ impl App {
                 }
             }),
         ])
+    }
+}
+
+fn take_external_drag(item_drag: &mut Option<ItemDragState>) -> Option<Vec<PathBuf>> {
+    if item_drag.as_ref().is_some_and(|drag| drag.is_dragging) {
+        item_drag.take().map(|drag| drag.paths)
+    } else {
+        None
+    }
+}
+
+fn grid_position(window_position: iced::Point, grid_origin: iced::Point) -> iced::Point {
+    iced::Point::new(
+        window_position.x - grid_origin.x,
+        window_position.y - grid_origin.y,
+    )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{ItemDragState, grid_position, take_external_drag};
+    use iced::Point;
+    use std::path::PathBuf;
+
+    fn drag(is_dragging: bool) -> Option<ItemDragState> {
+        Some(ItemDragState {
+            paths: vec![PathBuf::from("report.pdf")],
+            start: Point::ORIGIN,
+            is_dragging,
+            drop_target: None,
+        })
+    }
+
+    #[test]
+    fn leaving_window_exports_an_active_item_drag() {
+        let mut state = drag(true);
+
+        assert_eq!(
+            take_external_drag(&mut state),
+            Some(vec![PathBuf::from("report.pdf")])
+        );
+        assert!(state.is_none());
+    }
+
+    #[test]
+    fn leaving_window_does_not_steal_a_click_before_drag_threshold() {
+        let mut state = drag(false);
+
+        assert_eq!(take_external_drag(&mut state), None);
+        assert!(state.is_some());
+    }
+
+    #[test]
+    fn native_drop_position_is_translated_back_to_grid_coordinates() {
+        assert_eq!(
+            grid_position(Point::new(450.0, 320.0), Point::new(200.0, 52.0)),
+            Point::new(250.0, 268.0)
+        );
     }
 }

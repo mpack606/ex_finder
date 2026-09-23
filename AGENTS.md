@@ -82,3 +82,4 @@ pub fn view(...) -> Element<'static, SidebarMessage> {
 - **Check TODO.md**: Consult the roadmap before proposing major architectural changes.
 - **Icons**: Add new SVG icons to `src/icons.rs` as `pub const [NAME]_SVG: &[u8] = br##"..."##;`.
 - **Async Operations**: Current IO is mostly blocking. When implementing new features, prefer using `iced::Task` for heavy operations (like reading large directories).
+- **Version Every AI Commit**: Every commit created by an AI agent must include a Semantic Versioning bump. Analyze the committed changes and increment the appropriate number: major for breaking changes, minor for backward-compatible features, or patch for backward-compatible fixes and maintenance. Keep all project and bundle version declarations synchronized, including the lockfile.

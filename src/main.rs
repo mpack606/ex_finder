@@ -13,6 +13,7 @@ mod grid_view;
 mod icons;
 mod layout;
 mod list_view;
+mod macos_drag;
 mod navigation;
 mod search;
 mod settings;
